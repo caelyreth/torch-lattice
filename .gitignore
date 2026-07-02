@@ -1,4 +1,4 @@
-.vscode/
+# uv
 .venv/
 .pytest_cache/
 __pycache__/
@@ -7,6 +7,11 @@ dist/
 *.egg-info/
 *.so
 *.pyc
-# Local benchmark outputs are generated artifacts; keep the benchmark driver.
-benchmarks/*.json
-benchmarks/*.csv
+/.python-version
+
+# preferences
+/.vscode
+/.zed
+
+# os
+.DS_Store
