@@ -2,6 +2,7 @@ from typing import Tuple, Union, Optional
 
 import torch
 
+import torchsparse
 import torchsparse.backend
 from torchsparse.utils import make_ntuple, make_tensor
 
@@ -31,6 +32,30 @@ def spdownsample(
         all(stride[k] in [1, kernel_size[k]] for k in range(3))
         or downsample_mode == "minkowski"
     ):
+        if (
+            _coords.device.type == "cuda"
+            and _coords.dtype == torch.int32
+            and not torchsparse.tensor.get_allow_negative_coordinates()
+            and hasattr(torchsparse.backend, "downsample_simple_cuda")
+        ):
+            stride_t = make_tensor(stride, dtype=torch.int, device=_coords.device)
+            if spatial_range is not None:
+                coords_max = make_tensor(
+                    (0,)
+                    + tuple(
+                        (int(spatial_range[k]) - 1) // stride[k]
+                        for k in range(3)
+                    ),
+                    dtype=torch.int,
+                    device=_coords.device,
+                )
+            else:
+                coords_max = _coords.max(0).values
+                coords_max[1:] = coords_max[1:] // stride_t
+            return torchsparse.backend.downsample_simple_cuda(
+                _coords.contiguous(), coords_max, stride_t
+            )
+
         coords = _coords.clone()
         coords[:, 1:] = torch.div(coords[:, 1:], sample_stride.float()).floor()
         coords = torch.unique(coords, dim=0)

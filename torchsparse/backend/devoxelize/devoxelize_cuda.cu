@@ -3,7 +3,19 @@
 #include <thrust/device_vector.h>
 #include <torch/extension.h>
 
-#include <THC/THCAtomics.cuh>
+#include <cuda_fp16.h>
+
+template <typename scalar_t>
+__device__ inline void gpu_atomic_add(scalar_t *address, scalar_t val) {
+  atomicAdd(address, val);
+}
+
+template <>
+__device__ inline void gpu_atomic_add<c10::Half>(c10::Half *address,
+                                                 c10::Half val) {
+  atomicAdd(reinterpret_cast<__half *>(address),
+            *reinterpret_cast<__half *>(&val));
+}
 
 // input features (n, c), indices (N, 8), weight (N, 8) -> output features (N,
 // c)
@@ -51,7 +63,8 @@ __global__ void devoxelize_backward_kernel(
 #pragma unroll
     for (int k = 0; k < 8; k++) {
       if (indices_[k] >= 0)
-        atomicAdd(&bottom_grad[indices_[k] * c + j], weight_[k] * cur_top_grad);
+        gpu_atomic_add(&bottom_grad[indices_[k] * c + j],
+                       static_cast<scalar_t>(weight_[k] * cur_top_grad));
     }
   }
 }

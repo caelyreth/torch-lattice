@@ -12,7 +12,6 @@ void cpu_hash_wrapper(int N, const int *data, int64_t *out) {
       hash ^= (unsigned int)data[4 * i + j];
       hash *= 1099511628211UL;
     }
-    hash = (hash >> 60) ^ (hash & 0xFFFFFFFFFFFFFFF);
     out[i] = hash;
   }
 }
@@ -23,16 +22,15 @@ void cpu_kernel_hash_wrapper(int N, int K, const int *data,
 #pragma omp parallel for
     for (int i = 0; i < N; i++) {
       int cur_coord[4];
-      for (int j = 0; j < 3; j++) {
-        cur_coord[j] = data[i * 4 + j] + kernel_offset[k * 3 + j];
+      cur_coord[0] = data[i * 4];
+      for (int j = 1; j < 4; j++) {
+        cur_coord[j] = data[i * 4 + j] + kernel_offset[k * 3 + j - 1];
       }
-      cur_coord[3] = data[i * 4 + 3];
       uint64_t hash = 14695981039346656037UL;
       for (int j = 0; j < 4; j++) {
         hash ^= (unsigned int)cur_coord[j];
         hash *= 1099511628211UL;
       }
-      hash = (hash >> 60) ^ (hash & 0xFFFFFFFFFFFFFFF);
       out[k * N + i] = hash;
     }
   }

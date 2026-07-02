@@ -1,8 +1,8 @@
 import unittest
 from torchsparse.nn import functional as F
 from python import (
-    test_single_layer_convolution_forward,
-    test_to_dense_forward,
+    check_single_layer_convolution_forward,
+    check_to_dense_forward,
 )
 
 
@@ -17,7 +17,7 @@ class SparseConvTestCase(unittest.TestCase):
         # hashmap mode by default
         for kernel_size in kernel_sizes:
             for stride in strides:
-                mean_adiff, max_rdiff = test_single_layer_convolution_forward(
+                mean_adiff, max_rdiff = check_single_layer_convolution_forward(
                     kernel_size=kernel_size, stride=stride
                 )
                 acc_adiff += mean_adiff
@@ -30,7 +30,7 @@ class SparseConvTestCase(unittest.TestCase):
         F.conv_config.set_global_conv_config(config)
         for kernel_size in kernel_sizes:
             for stride in strides:
-                mean_adiff, max_rdiff = test_single_layer_convolution_forward(
+                mean_adiff, max_rdiff = check_single_layer_convolution_forward(
                     kernel_size=kernel_size, stride=stride
                 )
                 acc_adiff += mean_adiff
@@ -43,7 +43,7 @@ class SparseConvTestCase(unittest.TestCase):
 
 class ToDenseTestCase(unittest.TestCase):
     def test_to_dense(self):
-        max_adiff = test_to_dense_forward()
+        max_adiff = check_to_dense_forward()
         self.assertLessEqual(max_adiff, 1e-5)
 
 

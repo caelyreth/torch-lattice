@@ -1,0 +1,74 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.11",
+    "numpy>=2.4",
+    "torch==2.11.0+cu128",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "torchsparse"
+version = "2.1.0"
+description = "Sparse convolution library for modern PyTorch and CUDA."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "MIT HAN Lab" },
+]
+dependencies = [
+    "numpy>=2.4",
+    "torch==2.11.0+cu128",
+    "tqdm>=4.67",
+    "typing-extensions>=4.15",
+]
+
+[project.urls]
+Homepage = "https://github.com/mit-han-lab/torchsparse"
+Documentation = "http://torchsparse-docs.github.io/"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.0",
+]
+
+[tool.uv]
+required-version = ">=0.11.25"
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[tool.scikit-build]
+wheel.packages = ["torchsparse"]
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+CMAKE_CUDA_ARCHITECTURES = "89"
+CMAKE_CUDA_COMPILER = "/usr/local/cuda-12.8/bin/nvcc"
+CUDAToolkit_ROOT = "/usr/local/cuda-12.8"
+
+[tool.yapf]
+based_on_style = "google"
+spaces_around_power_operator = true
+split_before_arithmetic_operator = true
+split_before_logical_operator = true
+split_before_bitwise_operator = true
+
+[tool.isort]
+known_first_party = ["torchsparse"]
+
+[tool.pydocstyle]
+convention = "google"
+
+[tool.flake8]
+select = ["B", "C", "D", "E", "F", "P", "T4", "W", "B9"]
+ignore = ["D10", "E501", "E722", "W503"]
+per-file-ignores = [
+    "__init__.py:F401,F403",
+]

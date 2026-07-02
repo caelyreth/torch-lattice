@@ -75,9 +75,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("build_kernel_map_subm_hashmap", &build_kernel_map_subm_hashmap);
   m.def("build_kernel_map_downsample_hashmap", &build_kernel_map_downsample_hashmap);
   m.def("build_kernel_map_subm_hashmap_int32", &build_kernel_map_subm_hashmap_int32);
+  m.def("build_kernel_map_subm_hashmap_compact", &build_kernel_map_subm_hashmap_compact);
+  m.def("build_kernel_map_subm_hashmap_compact_int32", &build_kernel_map_subm_hashmap_compact_int32);
   m.def("build_kernel_map_downsample_hashmap_int32", &build_kernel_map_downsample_hashmap_int32);
+  m.def("compact_out_in_map_ordered", &compact_out_in_map_ordered);
+  m.def("compact_out_in_map_fod", &compact_out_in_map_fod);
+  m.def("generative_add_compress_cuda", &generative_add_compress_cuda);
+  m.def("sparse_crop_cuda", &sparse_crop_cuda);
   m.def("build_mask_from_kmap", &build_mask_from_kmap);
   m.def("downsample_cuda", &downsample_cuda);
+  m.def("downsample_simple_cuda", &downsample_simple_cuda);
+  m.def("upsample_generative_cuda", &upsample_generative_cuda);
   m.def("count_cpu", &count_cpu);
   m.def("count_cuda", &count_cuda);
 }

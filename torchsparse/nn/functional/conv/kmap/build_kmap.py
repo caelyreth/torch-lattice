@@ -16,6 +16,41 @@ cta_M = 128
 cta_M_wgrad = 64
 
 
+def _active_kernel_offset_list(
+    kernel_size: Tuple[int, ...],
+    spatial_range: Tuple[int, ...],
+    subm: bool,
+) -> list:
+    if not subm or spatial_range is None:
+        return None
+
+    kernel_size_cpu = [int(v) for v in kernel_size]
+    spatial_extents = [int(v) for v in spatial_range[1:]]
+    if len(kernel_size_cpu) != len(spatial_extents):
+        return None
+
+    active = []
+    kernel_idx = 0
+    for oz in range(kernel_size_cpu[2]):
+        dz = oz - (kernel_size_cpu[2] - 1) // 2
+        for oy in range(kernel_size_cpu[1]):
+            dy = oy - (kernel_size_cpu[1] - 1) // 2
+            for ox in range(kernel_size_cpu[0]):
+                dx = ox - (kernel_size_cpu[0] - 1) // 2
+                if (
+                    (dx == 0 or spatial_extents[0] > 1)
+                    and (dy == 0 or spatial_extents[1] > 1)
+                    and (dz == 0 or spatial_extents[2] > 1)
+                ):
+                    active.append(kernel_idx)
+                kernel_idx += 1
+
+    kernel_volume = math.prod(kernel_size_cpu)
+    if len(active) == kernel_volume:
+        return None
+    return active
+
+
 def build_kernel_map(
     _coords: torch.Tensor,
     input_node_num: int,
@@ -33,6 +68,9 @@ def build_kernel_map(
     generative: bool = False,
     split_mask_num: int = 1,
     split_mask_num_bwd: int = 1,
+    FOD_fusion: bool = True,
+    IGEMM_center_only: bool = False,
+    inference: bool = False,
 ) -> Dict:
     from torchsparse.nn import functional as F
 
@@ -62,6 +100,23 @@ def build_kernel_map(
     stride = make_ntuple(stride, ndim=3)
     kernel_size = make_ntuple(kernel_size, ndim=3)
     padding = make_ntuple(padding, ndim=3)
+    can_compact_active_offsets = (
+        (dataflow == Dataflow.ImplicitGEMM and not ifsort)
+        or (
+            dataflow in (Dataflow.GatherScatter, Dataflow.FetchOnDemand)
+            and not training
+            and inference
+        )
+    )
+    active_kernel_offset_list = (
+        _active_kernel_offset_list(
+            kernel_size,
+            spatial_range,
+            not (any(s > 1 for s in stride)),
+        )
+        if can_compact_active_offsets
+        else None
+    )
     if spatial_range is not None:
         new_spatial_range = [0, 0, 0]
         for i in range(len(new_spatial_range)):
@@ -76,6 +131,13 @@ def build_kernel_map(
     stride = make_tensor(stride, dtype=torch.int, device=_coords.device)
     padding = make_tensor(padding, dtype=torch.int, device=_coords.device)
     kernel_size = make_tensor(kernel_size, dtype=torch.int, device=_coords.device)
+    active_kernel_offsets = (
+        None
+        if active_kernel_offset_list is None
+        else torch.tensor(
+            active_kernel_offset_list, dtype=torch.long, device=_coords.device
+        )
+    )
 
     if mode == "hashmap_on_the_fly":
         if generative:
@@ -95,6 +157,8 @@ def build_kernel_map(
                 subm=subm,
                 ifsort=ifsort,
                 split_mask_num=split_mask_num,
+                IGEMM_center_only=IGEMM_center_only,
+                active_kernel_offsets=active_kernel_offsets,
             )
 
         elif dataflow == Dataflow.GatherScatter:
@@ -108,6 +172,7 @@ def build_kernel_map(
                 spatial_range=new_spatial_range,
                 cta_M=cta_M,
                 subm=subm,
+                active_kernel_offsets=active_kernel_offsets,
             )
 
         elif dataflow == Dataflow.FetchOnDemand:
@@ -121,6 +186,8 @@ def build_kernel_map(
                 spatial_range=new_spatial_range,
                 cta_M=cta_M,
                 subm=subm,
+                FOD_fusion=FOD_fusion,
+                active_kernel_offsets=active_kernel_offsets,
             )
 
         else:
@@ -145,6 +212,7 @@ def build_kernel_map(
                 downsample_mode=downsample_mode,
                 generative=generative,
                 split_mask_num=split_mask_num,
+                IGEMM_center_only=IGEMM_center_only,
             )
 
         elif dataflow == Dataflow.GatherScatter:
@@ -175,6 +243,7 @@ def build_kernel_map(
                 subm=subm,
                 downsample_mode=downsample_mode,
                 generative=generative,
+                FOD_fusion=FOD_fusion,
             )
 
         else:
@@ -189,6 +258,15 @@ def build_kernel_map(
         raise ValueError("[Build kernel map] unknown mode: {}".format(mode))
 
     if dataflow == Dataflow.ImplicitGEMM:
+        if active_kernel_offsets is not None:
+            if kmap["out_in_map"].size(1) != active_kernel_offsets.numel():
+                kmap["out_in_map"] = kmap["out_in_map"].index_select(
+                    1, active_kernel_offsets
+                )
+            kmap["active_kernel_offsets"] = active_kernel_offsets
+        else:
+            kmap["active_kernel_offsets"] = None
+
         if training:
             out_in_map_bwd = F.convert_transposed_out_in_map(
                 kmap["out_in_map"], make_divisible(kmap["sizes"][0], cta_M)

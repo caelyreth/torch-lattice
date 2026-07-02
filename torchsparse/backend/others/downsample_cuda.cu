@@ -19,9 +19,9 @@ coords_min: NDIM
 coords_max: NDIM
 out_coords: N
 */
-__host__ __device__ inline int64_t transform_coords(int *in_coords,
-                                                    int *coords_min,
-                                                    int *coords_max) {
+__host__ __device__ inline int64_t transform_coords(const int *in_coords,
+                                                    const int *coords_min,
+                                                    const int *coords_max) {
   int64_t cur = 0;
   int sizes[NDim];
 #pragma unroll
@@ -140,6 +140,46 @@ __global__ void inverse_transform_coords_kernel(int n_points,
                            out_coords + idx * NDim);
 }
 
+__global__ void downsample_simple_hash_kernel(int n_points,
+                                              const int *__restrict__ in_coords,
+                                              const int *__restrict__ coords_min,
+                                              const int *__restrict__ coords_max,
+                                              const int *__restrict__ stride,
+                                              int64_t *__restrict__ out_hashes) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= n_points) return;
+
+  int coords_out[NDim];
+  coords_out[0] = in_coords[idx * NDim];
+#pragma unroll
+  for (int i = 1; i < NDim; i++) {
+    coords_out[i] = in_coords[idx * NDim + i] / stride[i - 1];
+  }
+  out_hashes[idx] = transform_coords(coords_out, coords_min, coords_max);
+}
+
+__global__ void upsample_generative_kernel(int n_points, int kernel_volume,
+                                           const int *__restrict__ in_coords,
+                                           const int *__restrict__ kernel_offsets,
+                                           const int *__restrict__ stride,
+                                           int *__restrict__ out_coords) {
+  int tidx = blockIdx.x * blockDim.x + threadIdx.x;
+  int total = n_points * kernel_volume;
+  if (tidx >= total) return;
+
+  int point_idx = tidx / kernel_volume;
+  int kernel_idx = tidx - point_idx * kernel_volume;
+  const int *in = in_coords + point_idx * NDim;
+  const int *offset = kernel_offsets + kernel_idx * (NDim - 1);
+  int *out = out_coords + tidx * NDim;
+
+  out[0] = in[0];
+#pragma unroll
+  for (int i = 1; i < NDim; i++) {
+    out[i] = in[i] * stride[i - 1] + offset[i - 1];
+  }
+}
+
 /*
 Idea: launch get_output_coords_kernel then inverse_transform_coords_kernel
 */
@@ -185,6 +225,66 @@ at::Tensor downsample_cuda(at::Tensor _in_coords, at::Tensor _coords_max,
   inverse_transform_coords_kernel<<<int(ceil((double)num_out_points / 256)), 256>>>(
       num_out_points, _out_coords_transformed.data_ptr<long>(),
       coords_min, coords_max, out_coords);
+
+  return _out_coords;
+}
+
+at::Tensor downsample_simple_cuda(at::Tensor _in_coords,
+                                  at::Tensor _coords_max,
+                                  at::Tensor _stride) {
+  int N = _in_coords.size(0);
+  at::Tensor _coords_min = torch::zeros({NDim},
+                                        torch::TensorOptions()
+                                            .dtype(at::ScalarType::Int)
+                                            .device(_in_coords.device()));
+  at::Tensor _out_coords_transformed = torch::empty({N},
+                                                   torch::TensorOptions()
+                                                       .dtype(at::ScalarType::Long)
+                                                       .device(_in_coords.device()));
+
+  downsample_simple_hash_kernel<<<int(ceil((double)N / 256)), 256>>>(
+      N,
+      _in_coords.data_ptr<int>(),
+      _coords_min.data_ptr<int>(),
+      _coords_max.data_ptr<int>(),
+      _stride.data_ptr<int>(),
+      _out_coords_transformed.data_ptr<long>());
+
+  _out_coords_transformed = std::get<0>(at::_unique(_out_coords_transformed));
+
+  int num_out_points = _out_coords_transformed.size(0);
+  at::Tensor _out_coords = torch::empty({num_out_points, NDim},
+                                       torch::TensorOptions()
+                                           .dtype(at::ScalarType::Int)
+                                           .device(_in_coords.device()));
+
+  inverse_transform_coords_kernel<<<int(ceil((double)num_out_points / 256)), 256>>>(
+      num_out_points,
+      _out_coords_transformed.data_ptr<long>(),
+      _coords_min.data_ptr<int>(),
+      _coords_max.data_ptr<int>(),
+      _out_coords.data_ptr<int>());
+
+  return _out_coords;
+}
+
+at::Tensor upsample_generative_cuda(at::Tensor _in_coords,
+                                    at::Tensor _kernel_offsets,
+                                    at::Tensor _stride) {
+  int N = _in_coords.size(0);
+  int kernel_volume = _kernel_offsets.size(0);
+  at::Tensor _out_coords = torch::empty({N * kernel_volume, NDim},
+                                        torch::TensorOptions()
+                                            .dtype(at::ScalarType::Int)
+                                            .device(_in_coords.device()));
+
+  upsample_generative_kernel<<<int(ceil((double)(N * kernel_volume) / 256)), 256>>>(
+      N,
+      kernel_volume,
+      _in_coords.data_ptr<int>(),
+      _kernel_offsets.data_ptr<int>(),
+      _stride.data_ptr<int>(),
+      _out_coords.data_ptr<int>());
 
   return _out_coords;
 }

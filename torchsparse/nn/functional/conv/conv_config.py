@@ -20,9 +20,11 @@ _default_conv_config = AttributeDict(
         ("downsample_mode", "spconv"),
         ("split_mask_num", 1),
         ("split_mask_num_bwd", 3),
+        ("wgrad_split_k", "auto"),
+        ("IGEMM_center_only", False),
         ("epsilon", 0.0),
         ("mm_thresh", 0),
-        ("FOD_fusion", True),
+        ("FOD_fusion", False),
     ]
 )
 
@@ -47,6 +49,14 @@ def keys_check(conv_config):
     if "split_mask_num_bwd" not in conv_config:
         flag = True
         conv_config["split_mask_num_bwd"] = _default_conv_config["split_mask_num_bwd"]
+    if "wgrad_split_k" not in conv_config:
+        flag = True
+        conv_config["wgrad_split_k"] = _default_conv_config["wgrad_split_k"]
+    if "IGEMM_center_only" not in conv_config:
+        flag = True
+        conv_config["IGEMM_center_only"] = _default_conv_config[
+            "IGEMM_center_only"
+        ]
     if "epsilon" not in conv_config:
         flag = True
         conv_config["epsilon"] = _default_conv_config["epsilon"]
@@ -81,7 +91,7 @@ def clear_global_conv_config():
 def get_default_conv_config(
     conv_mode: ConvMode = ConvMode.mode0, training: bool = False
 ):
-    config = _default_conv_config
+    config = _default_conv_config.copy()
     # if training:
     #     config.ifsort = True
     if conv_mode == ConvMode.mode0:

@@ -19,6 +19,7 @@ def build_kmap_implicit_GEMM_hashmap(
     split_mask_num: int = 1,
     downsample_mode: str = "spconv",
     generative: bool = False,
+    IGEMM_center_only: bool = False,
 ) -> Dict:
     from torchsparse.nn import functional as F
 
@@ -102,6 +103,18 @@ def build_kmap_implicit_GEMM_hashmap(
         kmap["reorder_loc"] = reorder_loc
         kmap["sorted_mask"] = sorted_mask
 
+    if IGEMM_center_only and subm and int(kernel_volume.item()) % 2 == 1:
+        results_t = torch.t(results).contiguous()
+        nbsizes = torch.sum(results_t != -1, dim=1).to(torch.int)
+        nbsizes_cpu = nbsizes.cpu().contiguous()
+        mid_kernel = nbsizes_cpu.numel() // 2
+        kmap["IGEMM_center_only"] = (
+            int(nbsizes_cpu[mid_kernel]) == int(coords.shape[0])
+            and int(nbsizes_cpu.sum()) == int(coords.shape[0])
+        )
+    else:
+        kmap["IGEMM_center_only"] = False
+
     return kmap
 
 
@@ -150,6 +163,7 @@ def build_kmap_Gather_Scatter_hashmap(
 
     kmap["nbmaps"] = nbmaps
     kmap["nbsizes"] = nbsizes
+    kmap["nbsizes_cpu"] = nbsizes.int().cpu().contiguous()
     kmap["input_mask"] = input_mask
     kmap["output_mask"] = output_mask
 
@@ -168,6 +182,7 @@ def build_kmap_Fetch_on_Demand_hashmap(
     subm: bool = False,
     downsample_mode: str = "spconv",
     generative: bool = False,
+    FOD_fusion: bool = True,
 ) -> Dict:
 
     kmap = build_kmap_implicit_GEMM_hashmap(
@@ -191,21 +206,32 @@ def build_kmap_Fetch_on_Demand_hashmap(
     nbmaps = torch.nonzero(results != -1)
     nbmaps[:, 0] = results.view(-1)[nbmaps[:, 0] * results.size(1) + nbmaps[:, 1]]
 
-    kernel_volume = nbsizes.size(0)
-    nbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
-    qnbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
-
-    # Derive quantified arrays
-    torchsparse.backend.exclusive_scan_quantified_wrapper(
-        kernel_volume, nbsizes, nbaddrs, qnbaddrs
-    )
-
     # nbmaps need to be transposed for Fetch-on-Demand
     kmap["nbmaps"] = nbmaps.transpose(0, 1).int()
     kmap["nbsizes"] = nbsizes
+    nbsizes_cpu = nbsizes.cpu().contiguous()
+    kmap["nbsizes_cpu"] = nbsizes_cpu
+    if subm and nbsizes_cpu.numel() % 2 == 1:
+        mid_kernel = nbsizes_cpu.numel() // 2
+        kmap["FOD_center_only"] = (
+            int(nbsizes_cpu[mid_kernel]) == int(nbmaps.size(0))
+            and int(nbsizes_cpu.sum()) == int(nbmaps.size(0))
+        )
+    else:
+        kmap["FOD_center_only"] = False
 
-    kmap["nbaddrs"] = nbaddrs
-    kmap["qnbaddrs"] = qnbaddrs
-    kmap["qmapsize"] = qnbaddrs[-1].cpu().int()
+    if FOD_fusion:
+        kernel_volume = nbsizes.size(0)
+        nbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
+        qnbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
+
+        # Derive quantified arrays
+        torchsparse.backend.exclusive_scan_quantified_wrapper(
+            kernel_volume, nbsizes, nbaddrs, qnbaddrs
+        )
+
+        kmap["nbaddrs"] = nbaddrs
+        kmap["qnbaddrs"] = qnbaddrs
+        kmap["qmapsize"] = qnbaddrs[-1].cpu().int()
 
     return kmap

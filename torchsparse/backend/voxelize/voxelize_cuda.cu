@@ -2,8 +2,20 @@
 #include <stdlib.h>
 #include <torch/torch.h>
 
-#include <THC/THCAtomics.cuh>
 #include <cmath>
+#include <cuda_fp16.h>
+
+template <typename scalar_t>
+__device__ inline void gpu_atomic_add(scalar_t *address, scalar_t val) {
+  atomicAdd(address, val);
+}
+
+template <>
+__device__ inline void gpu_atomic_add<c10::Half>(c10::Half *address,
+                                                 c10::Half val) {
+  atomicAdd(reinterpret_cast<__half *>(address),
+            *reinterpret_cast<__half *>(&val));
+}
 
 // to_dense: feats (N x C), coords (N x 4), output (B x H x W x D x C)
 // coords: batch, x, y, z
@@ -51,7 +63,8 @@ __global__ void voxelize_forward_kernel(int N, int c, int s,
     int pos = idx[i];
     if (pos < 0 || pos >= s || counts[pos] == 0)
       return;
-    atomicAdd(&out[pos * c + j], data[i * c + j] / float(counts[pos]));
+    gpu_atomic_add(&out[pos * c + j],
+                   static_cast<scalar_t>(data[i * c + j] / float(counts[pos])));
   }
 }
 
@@ -70,8 +83,9 @@ __global__ void voxelize_backward_kernel(int N, int c, int s,
     int pos = idx[i];
     if (pos < 0 || pos >= s || counts[pos] == 0)
       return;
-    atomicAdd(&bottom_grad[i * c + j],
-              top_grad[pos * c + j] / float(counts[pos]));
+    gpu_atomic_add(&bottom_grad[i * c + j],
+                   static_cast<scalar_t>(top_grad[pos * c + j] /
+                                         float(counts[pos])));
   }
 }
 

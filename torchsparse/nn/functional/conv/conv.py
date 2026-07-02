@@ -12,6 +12,34 @@ from .func import *
 __all__ = ["conv3d"]
 
 
+def _make_kmap_cache_key(
+    tensor_stride: Tuple[int, ...],
+    kernel_size: Tuple[int, ...],
+    stride: Tuple[int, ...],
+    padding: Tuple[int, ...],
+    dilation: Tuple[int, ...],
+    config: Dict,
+    training: bool,
+) -> Tuple:
+    return (
+        tensor_stride,
+        kernel_size,
+        stride,
+        padding,
+        dilation,
+        config.kmap_mode,
+        config.downsample_mode,
+        config.dataflow,
+        bool(config.ifsort),
+        bool(config.FOD_fusion) if getattr(config.dataflow, "name", None) == "FetchOnDemand" else None,
+        bool(config.get("IGEMM_center_only", False)) if getattr(config.dataflow, "name", None) == "ImplicitGEMM" else None,
+        int(config.split_mask_num),
+        int(config.split_mask_num_bwd) if training else 0,
+        config.get("wgrad_split_k", "auto") if training and getattr(config.dataflow, "name", None) == "ImplicitGEMM" else 0,
+        bool(training),
+    )
+
+
 def conv3d(
     input: SparseTensor,
     weight: torch.Tensor,
@@ -31,6 +59,7 @@ def conv3d(
     kernel_size = make_ntuple(kernel_size, ndim=3)
     # kernel_volume = np.prod(kernel_size)
     stride = make_ntuple(stride, ndim=3)
+    padding = make_ntuple(padding, ndim=3)
     dilation = make_ntuple(dilation, ndim=3)
 
     conv_mode = F.get_conv_mode()
@@ -45,14 +74,21 @@ def conv3d(
 
     dataflow = config.dataflow
     kmap_mode = config.kmap_mode
+    inference_no_grad = (
+        not torch.is_grad_enabled()
+        or (not feats.requires_grad and not weight.requires_grad)
+    )
 
     if dataflow == F.Dataflow.ImplicitGEMM:
         ConvolutionFunction = ImplicitGEMMConvolutionFuntion
+        no_grad_forward = implicit_gemm_forward_no_grad
     elif dataflow == F.Dataflow.GatherScatter:
         ConvolutionFunction = GatherScatterConvolutionFuntion
+        no_grad_forward = gather_scatter_forward_no_grad
         config.ifsort = False
     elif dataflow == F.Dataflow.FetchOnDemand:
         ConvolutionFunction = FetchOnDemandConvolutionFuntion
+        no_grad_forward = fetch_on_demand_forward_no_grad
         config.ifsort = False
     elif (
         dataflow == F.Dataflow.CodedCSR
@@ -73,14 +109,14 @@ def conv3d(
             spatial_range=input.spatial_range,
         )
     elif not transposed:
-        kmap = input._caches.kmaps.get((input.stride, kernel_size, stride, dilation))
+        kmap_key = _make_kmap_cache_key(
+            input.stride, kernel_size, stride, padding, dilation, config, training
+        )
+        kmap = input._caches.kmaps.get(kmap_key)
 
-        if kmap_mode != "hashmap_on_the_fly":
-            hashmap = input._caches.hashmaps.get(input.stride)
-        else:
-            hashmap = input._caches.hashmaps.get(
-                tuple(input.stride[k] * stride[k] for k in range(3))
-            )
+        output_stride = tuple(input.stride[k] * stride[k] for k in range(3))
+        hashmap_stride = output_stride if kmap_mode == "hashmap_on_the_fly" else input.stride
+        hashmap = input._caches.hashmaps.get(hashmap_stride)
         if hashmap is None:
             hashmap_keys, hashmap_vals = None, None
         else:
@@ -105,34 +141,51 @@ def conv3d(
                 ifsort=config.ifsort,
                 split_mask_num=config.split_mask_num,
                 split_mask_num_bwd=config.split_mask_num_bwd,
+                FOD_fusion=config.FOD_fusion,
+                IGEMM_center_only=config.get("IGEMM_center_only", False),
+                inference=inference_no_grad,
             )
 
             hashmap = [kmap["hashmap_keys"], kmap["hashmap_vals"]]
 
-            input._caches.kmaps[(input.stride, kernel_size, stride, dilation)] = kmap
-            input._caches.hashmaps[input.stride] = hashmap
+            input._caches.kmaps[kmap_key] = kmap
+            input._caches.hashmaps[hashmap_stride] = hashmap
 
-        feats = ConvolutionFunction.apply(
-            feats,
-            weight,
-            kmap,
-            config,
-            transposed,
-        )
+        if (
+            no_grad_forward is not None
+            and inference_no_grad
+        ):
+            feats = no_grad_forward(feats, weight, kmap, config, transposed)
+        else:
+            feats = ConvolutionFunction.apply(
+                feats,
+                weight,
+                kmap,
+                config,
+                transposed,
+            )
 
         if bias is not None:
             feats += bias
         output = SparseTensor(
             coords=kmap["coords"],
             feats=feats,
-            stride=tuple(input.stride[k] * stride[k] for k in range(3)),
+            stride=output_stride,
             spatial_range=kmap["spatial_range"],
         )
     else:
         tensor_stride = tuple(input.stride[k] // stride[k] for k in range(3))
         if not generative:
             kmap = input._caches.kmaps.get(
-                (tensor_stride, kernel_size, stride, dilation)
+                _make_kmap_cache_key(
+                    tensor_stride,
+                    kernel_size,
+                    stride,
+                    padding,
+                    dilation,
+                    config,
+                    training,
+                )
             )
 
             kmap = F.transpose_kernel_map(
@@ -178,6 +231,9 @@ def conv3d(
                 training=training,
                 ifsort=config.ifsort,
                 generative=generative,
+                FOD_fusion=config.FOD_fusion,
+                IGEMM_center_only=config.get("IGEMM_center_only", False),
+                inference=inference_no_grad,
             )
             # generate output: logically forced to be not transposed
             feats = ConvolutionFunction.apply(

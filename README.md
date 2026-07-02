@@ -9,7 +9,7 @@
 
 TorchSparse is a high-performance neural network library for point cloud processing.
 
-### [website](http://torchsparse.mit.edu/) | [paper (MICRO 2023)](https://www.dropbox.com/scl/fi/obdku0kqxjlkvuom2opk4/paper.pdf?rlkey=0zmy8eq9fzllgkx54zsvwsecf&dl=0) | [paper (MLSys 2022)](https://arxiv.org/abs/2204.10319) | [presentation](https://www.youtube.com/watch?v=IIh4EwmcLUs) | [documents](http://torchsparse-docs.github.io/) | [pypi server](http://pypi.hanlab.ai/simple/torchsparse)
+### [website](http://torchsparse.mit.edu/) | [paper (MICRO 2023)](https://www.dropbox.com/scl/fi/obdku0kqxjlkvuom2opk4/paper.pdf?rlkey=0zmy8eq9fzllgkx54zsvwsecf&dl=0) | [paper (MLSys 2022)](https://arxiv.org/abs/2204.10319) | [presentation](https://www.youtube.com/watch?v=IIh4EwmcLUs) | [documents](http://torchsparse-docs.github.io/)
 
 
 ## Introduction
@@ -39,43 +39,40 @@ Point cloud computation has become an increasingly more important workload for a
 
 ## Installation
 
-We provide pre-built torchsparse v2.1.0 packages (recommended) with different PyTorch and CUDA versions to simplify the building for the Linux system.
+This branch is modernized for Python 3.14, PyTorch 2.11 CUDA 12.8 wheels, and NVIDIA Ada GPUs such as the RTX 4090. The project is managed with [uv](https://docs.astral.sh/uv/) and builds its PyTorch extension through `pyproject.toml`.
 
-1. Ensure at least PyTorch 1.9.0 is installed:
-
-   ```bash
-   python -c "import torch; print(torch.__version__)"
-   >>> 1.10.0
-   ```
-
-1. If you want to use TorchSparse with gpus, please ensure PyTorch was installed with CUDA:
+1. Install or update uv:
 
    ```bash
-   python -c "import torch; print(torch.version.cuda)"
-   >>> 11.3
+   curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
-1. Then the right TorchSparse wheel can be found and installed by running the installation script:
+1. Sync the Python 3.14 environment and build the CUDA extension:
 
    ```bash
-   python -c "$(curl -fsSL https://raw.githubusercontent.com/mit-han-lab/torchsparse/master/install.py)"
+   uv sync --prerelease allow --extra test
    ```
-   
 
-If Pypi server does not work as expected, no worries, you can still manually download the wheels. The wheels are listed in [this website](http://pypi.hanlab.ai/simple/torchsparse). One can utilize our installation script to automatically determine the version number used to index the wheels. For example, if you use PyTorch 1.11.0, CUDA 11.5, the version number will end up to be 2.1.0+torch111cu115. You can then select the proper wheel according to your Python version.
+   The lock file pins `torch==2.11.0+cu128` from the PyTorch CUDA 12.8 wheel index. The build backend defaults `TORCH_CUDA_ARCH_LIST=8.9` for RTX 4090 unless you override it.
 
+1. Verify the installation:
 
-You may also alternatively install our library from source via:
+   ```bash
+   uv run python - <<'PY'
+   import torch
+   import torchsparse.backend as backend
+   print(torch.__version__, torch.version.cuda)
+   print(torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))
+   print(backend.__file__)
+   PY
+   ```
+
+Run the focused CUDA checks with:
 
 ```bash
-python setup.py install
+uv run python -m pytest tests/python/test_to_dense.py tests/python/test_single_layer_conv.py -q
+uv run python tests/test.py
 ```
-in the repository, or using  
-
-```
-pip install git+https://github.com/mit-han-lab/torchsparse.git
-```
-without the need to clone the repository. 
 
 ## Benchmarks
 
@@ -178,4 +175,3 @@ We thank Yan Yan from TuSimple for helpful discussions. Please also have a look 
 TorchSparse is inspired by many existing open-source libraries, including (but not limited to) [MinkowskiEngine](https://github.com/NVIDIA/MinkowskiEngine), [SECOND](https://github.com/traveller59/second.pytorch) and [SparseConvNet](https://github.com/facebookresearch/SparseConvNet).
 
 We also thank [AttributeDict](https://github.com/grimen/python-attributedict/tree/master) for providing an elegant way to manage the kernel/model configurations.
-

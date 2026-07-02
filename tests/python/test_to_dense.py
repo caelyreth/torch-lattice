@@ -13,7 +13,7 @@ from .test_utils import generate_feature_map
 __all__ = ["test_to_dense_forward"]
 
 
-def test_to_dense_forward(
+def check_to_dense_forward(
     batch_size: int = 1,
     shape: Union[int, Tuple[int, ...]] = 3,
     num_points: int = 6,
@@ -39,7 +39,7 @@ def test_to_dense_forward(
     sparse_dict = generate_feature_map(shape, num_points, channel, dtype=np_dtype)
 
     feats = np.ascontiguousarray(sparse_dict["feats"])
-    coords = np.ascontiguousarray(sparse_dict["coords"][:, [3, 0, 1, 2]])  # batch first
+    coords = np.ascontiguousarray(sparse_dict["coords"])
     ref_dense_feats = sparse_dict["dense_feats"].transpose(0, 2, 3, 4, 1)
 
     coords_t = torch.from_numpy(coords).int().to(device)
@@ -51,9 +51,14 @@ def test_to_dense_forward(
     # print(ref_dense_feats)
 
     max_adiff = np.max(np.abs(output - ref_dense_feats))
+    assert max_adiff <= 1e-5
     return max_adiff
 
 
+def test_to_dense_forward():
+    check_to_dense_forward()
+
+
 if __name__ == "__main__":
-    max_adiff = test_to_dense_forward()
+    max_adiff = check_to_dense_forward()
     print(max_adiff)

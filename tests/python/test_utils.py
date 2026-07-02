@@ -25,7 +25,7 @@ def generate_feature_map(
         inds_total = coords_total[: num_points[i]]
         inds_total = np.pad(
             inds_total,
-            ((0, 0), (0, 1)),  # batch last
+            ((0, 0), (1, 0)),  # batch first
             mode="constant",
             constant_values=i,
         )
@@ -46,7 +46,7 @@ def generate_feature_map(
         start = 0
         for i, inds in enumerate(batch_indices):
             for j, ind in enumerate(inds):
-                dense_slice = (i, slice(None), *ind[:-1])
+                dense_slice = (i, slice(None), *ind[1:])
                 dense_feats[dense_slice] = features[start + j]
             start += len(inds)
         sparse_dict["dense_feats"] = dense_feats
@@ -65,8 +65,8 @@ def sparse_tensor_to_dense(
     ts_pt = ts_tensor.F[: ts_tensor.C.shape[0]]
     ts_coords = ts_tensor.C
 
-    np_ts_pt = np.array(ts_pt.detach().cpu())
-    np_ts_coords = np.array(ts_coords.detach().cpu())
+    np_ts_pt = np.asarray(ts_pt.detach().cpu())
+    np_ts_coords = np.asarray(ts_coords.detach().cpu())
 
     if num_channels is None:
         num_channels = np_ts_pt.shape[1]

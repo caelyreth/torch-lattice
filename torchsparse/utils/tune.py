@@ -18,6 +18,9 @@ from torchsparse.nn import functional as F
 __all__ = ["tune"]
 
 
+_WGRAD_SPLIT_K_RANGE = (8, 16, 32, 64)
+
+
 class StableTimeAccumulator:
     def __init__(self):
         self.fwd_trial = 0
@@ -57,11 +60,31 @@ def recursive_apply(x, func):
     if isinstance(x, list):
         return [recursive_apply(v, func) for v in x]
     if isinstance(x, tuple):
-        return (recursive_apply(v, func) for v in x)
+        return tuple(recursive_apply(v, func) for v in x)
     if isinstance(x, SparseTensor):
         temp = func(x)
         return temp if isinstance(temp, SparseTensor) else x
     return x
+
+
+def _dataflow_prune_key(config):
+    if config.dataflow == F.Dataflow.FetchOnDemand:
+        return (config.dataflow, config.FOD_fusion)
+    return (config.dataflow, None)
+
+
+def _config_key(config):
+    return (
+        config.epsilon,
+        config.mm_thresh,
+        config.split_mask_num,
+        config.split_mask_num_bwd,
+        config.dataflow,
+        config.ifsort,
+        config.FOD_fusion,
+        config.get("IGEMM_center_only", False),
+        config.wgrad_split_k,
+    )
 
 
 def clear_tensor_cache(inputs: SparseTensor):
@@ -139,7 +162,7 @@ def dataflow_selector(
             fwd_duration, bwd_duration = torchsparse_tune_timer(
                 model, inputs, tune_with_bwd
             )
-            dataflow_all[group_idx][(dummy_config.dataflow)].stable_add(
+            dataflow_all[group_idx][_dataflow_prune_key(dummy_config)].stable_add(
                 fwd_duration, bwd_duration
             )
 
@@ -154,7 +177,7 @@ def dataflow_selector(
             fwd_duration, bwd_duration = torchsparse_tune_timer(
                 model, inputs, tune_with_bwd
             )
-            dataflow_all[group_idx][(dummy_config.dataflow)].stable_add(
+            dataflow_all[group_idx][_dataflow_prune_key(dummy_config)].stable_add(
                 fwd_duration, bwd_duration
             )
 
@@ -165,14 +188,16 @@ def dataflow_selector(
                 False,
                 1,
             )
-            set_group_config(model, names, dummy_config)
-            inputs = clear_tensor_cache(inputs)
-            fwd_duration, bwd_duration = torchsparse_tune_timer(
-                model, inputs, tune_with_bwd
-            )
-            dataflow_all[group_idx][(dummy_config.dataflow)].stable_add(
-                fwd_duration, bwd_duration
-            )
+            for FOD_fusion in [True, False]:
+                dummy_config.FOD_fusion = FOD_fusion
+                set_group_config(model, names, dummy_config)
+                inputs = clear_tensor_cache(inputs)
+                fwd_duration, bwd_duration = torchsparse_tune_timer(
+                    model, inputs, tune_with_bwd
+                )
+                dataflow_all[group_idx][_dataflow_prune_key(dummy_config)].stable_add(
+                    fwd_duration, bwd_duration
+                )
 
         # Dataflow 3: Gather-Scatter (Deprecated by default)
         if F.Dataflow.GatherScatter in dataflow_range:
@@ -186,7 +211,7 @@ def dataflow_selector(
             fwd_duration, bwd_duration = torchsparse_tune_timer(
                 model, inputs, tune_with_bwd
             )
-            dataflow_all[group_idx][(dummy_config.dataflow)].stable_add(
+            dataflow_all[group_idx][_dataflow_prune_key(dummy_config)].stable_add(
                 fwd_duration, bwd_duration
             )
 
@@ -210,9 +235,12 @@ def profile_model(
         clear_model_config(model)
         dummy_config = F.conv_config.get_default_conv_config().copy()
         if dataflow_prune:
-            local_dataflow_range = [group_dataflow[group_idx]["dataflow"]]
+            pruned_dataflow = group_dataflow[group_idx]
+            local_dataflow_range = [pruned_dataflow["dataflow"]]
+            pruned_FOD_fusion = pruned_dataflow.get("FOD_fusion")
         else:
             local_dataflow_range = dataflow_range
+            pruned_FOD_fusion = None
 
         if F.Dataflow.ImplicitGEMM in local_dataflow_range:
             # Implicit-GEMM. Tune whether to sort & split_mask_num.
@@ -220,119 +248,92 @@ def profile_model(
 
             # Stage 1: test unsort fwd
             dummy_config.ifsort = False
+            dummy_config.IGEMM_center_only = False
             if not tune_with_bwd:
-                dummy_config.split_mask_num = 1
-                set_group_config(model, names, dummy_config)
-                inputs = clear_tensor_cache(inputs)
-                fwd_duration, bwd_duration = torchsparse_tune_timer(
-                    model, inputs, tune_with_bwd
-                )
-                configs_all[group_idx][
-                    (
-                        dummy_config.epsilon,
-                        dummy_config.mm_thresh,
-                        dummy_config.split_mask_num,
-                        dummy_config.split_mask_num_bwd,
-                        dummy_config.dataflow,
-                        dummy_config.ifsort,
-                        dummy_config.FOD_fusion,
-                    )
-                ].stable_add(fwd_duration, bwd_duration)
-            else:
-                for split_mask_num_bwd in range(1, 5):
-                    dummy_config.split_mask_num_bwd = split_mask_num_bwd
+                for IGEMM_center_only in (False, True):
+                    dummy_config.IGEMM_center_only = IGEMM_center_only
+                    dummy_config.split_mask_num = 1
                     set_group_config(model, names, dummy_config)
                     inputs = clear_tensor_cache(inputs)
                     fwd_duration, bwd_duration = torchsparse_tune_timer(
                         model, inputs, tune_with_bwd
                     )
-                    configs_all[group_idx][
-                        (
-                            dummy_config.epsilon,
-                            dummy_config.mm_thresh,
-                            dummy_config.split_mask_num,
-                            dummy_config.split_mask_num_bwd,
-                            dummy_config.dataflow,
-                            dummy_config.ifsort,
-                            dummy_config.FOD_fusion,
+                    configs_all[group_idx][_config_key(dummy_config)].stable_add(
+                        fwd_duration, bwd_duration
+                    )
+            else:
+                dummy_config.IGEMM_center_only = False
+                for split_mask_num_bwd in range(1, 5):
+                    dummy_config.split_mask_num_bwd = split_mask_num_bwd
+                    for wgrad_split_k in _WGRAD_SPLIT_K_RANGE:
+                        dummy_config.wgrad_split_k = wgrad_split_k
+                        set_group_config(model, names, dummy_config)
+                        inputs = clear_tensor_cache(inputs)
+                        fwd_duration, bwd_duration = torchsparse_tune_timer(
+                            model, inputs, tune_with_bwd
                         )
-                    ].stable_add(fwd_duration, bwd_duration)
+                        configs_all[group_idx][_config_key(dummy_config)].stable_add(
+                            fwd_duration, bwd_duration
+                        )
 
             # Stage 2: test sort fwd
             dummy_config.ifsort = True
+            dummy_config.IGEMM_center_only = False
             if not tune_with_bwd:
-                for split_mask_num in range(1, 5):
-                    dummy_config.split_mask_num = split_mask_num
-                    set_group_config(model, names, dummy_config)
-                    inputs = clear_tensor_cache(inputs)
-                    fwd_duration, bwd_duration = torchsparse_tune_timer(
-                        model, inputs, tune_with_bwd
-                    )
-                    configs_all[group_idx][
-                        (
-                            dummy_config.epsilon,
-                            dummy_config.mm_thresh,
-                            dummy_config.split_mask_num,
-                            dummy_config.split_mask_num_bwd,
-                            dummy_config.dataflow,
-                            dummy_config.ifsort,
-                            dummy_config.FOD_fusion,
+                for IGEMM_center_only in (False, True):
+                    dummy_config.IGEMM_center_only = IGEMM_center_only
+                    for split_mask_num in range(1, 5):
+                        dummy_config.split_mask_num = split_mask_num
+                        set_group_config(model, names, dummy_config)
+                        inputs = clear_tensor_cache(inputs)
+                        fwd_duration, bwd_duration = torchsparse_tune_timer(
+                            model, inputs, tune_with_bwd
                         )
-                    ].stable_add(fwd_duration, bwd_duration)
+                        configs_all[group_idx][_config_key(dummy_config)].stable_add(
+                            fwd_duration, bwd_duration
+                        )
             else:
+                dummy_config.IGEMM_center_only = False
                 for split_mask_num in range(1, 5):
                     dummy_config.split_mask_num = split_mask_num
                     dummy_config.split_mask_num_bwd = split_mask_num
-                    set_group_config(model, names, dummy_config)
-                    inputs = clear_tensor_cache(inputs)
-                    fwd_duration, bwd_duration = torchsparse_tune_timer(
-                        model, inputs, tune_with_bwd
-                    )
-                    for iter in range(1, 5):
-                        configs_all[group_idx][
-                            (
-                                dummy_config.epsilon,
-                                dummy_config.mm_thresh,
-                                dummy_config.split_mask_num,
-                                iter,
-                                dummy_config.dataflow,
-                                dummy_config.ifsort,
-                                dummy_config.FOD_fusion,
+                    for wgrad_split_k in _WGRAD_SPLIT_K_RANGE:
+                        dummy_config.wgrad_split_k = wgrad_split_k
+                        set_group_config(model, names, dummy_config)
+                        inputs = clear_tensor_cache(inputs)
+                        fwd_duration, bwd_duration = torchsparse_tune_timer(
+                            model, inputs, tune_with_bwd
+                        )
+                        for iter in range(1, 5):
+                            fwd_config = dummy_config.copy()
+                            fwd_config.split_mask_num_bwd = iter
+                            configs_all[group_idx][_config_key(fwd_config)].stable_add(
+                                fwd_duration, 0.0
                             )
-                        ].stable_add(fwd_duration, 0.0)
-                        configs_all[group_idx][
-                            (
-                                dummy_config.epsilon,
-                                dummy_config.mm_thresh,
-                                iter,
-                                dummy_config.split_mask_num_bwd,
-                                dummy_config.dataflow,
-                                dummy_config.ifsort,
-                                dummy_config.FOD_fusion,
+                            bwd_config = dummy_config.copy()
+                            bwd_config.split_mask_num = iter
+                            configs_all[group_idx][_config_key(bwd_config)].stable_add(
+                                0.0, bwd_duration
                             )
-                        ].stable_add(0.0, bwd_duration)
 
         if F.Dataflow.FetchOnDemand in local_dataflow_range:
             # Fetch-on-Demand. Tune whether to fuse.
             dummy_config.dataflow = F.Dataflow.FetchOnDemand
-            for FOD_fusion in [True, False]:
+            FOD_fusion_range = (
+                [pruned_FOD_fusion]
+                if dataflow_prune and pruned_FOD_fusion is not None
+                else [True, False]
+            )
+            for FOD_fusion in FOD_fusion_range:
                 dummy_config.FOD_fusion = FOD_fusion
                 set_group_config(model, names, dummy_config)
                 inputs = clear_tensor_cache(inputs)
                 fwd_duration, bwd_duration = torchsparse_tune_timer(
                     model, inputs, tune_with_bwd
                 )
-                configs_all[group_idx][
-                    (
-                        dummy_config.epsilon,
-                        dummy_config.mm_thresh,
-                        dummy_config.split_mask_num,
-                        dummy_config.split_mask_num_bwd,
-                        dummy_config.dataflow,
-                        dummy_config.ifsort,
-                        dummy_config.FOD_fusion,
-                    )
-                ].stable_add(fwd_duration, bwd_duration)
+                configs_all[group_idx][_config_key(dummy_config)].stable_add(
+                    fwd_duration, bwd_duration
+                )
 
         if F.Dataflow.GatherScatter in local_dataflow_range:
             # Gather-Scatter. Tune eps & mm_thresh
@@ -356,17 +357,9 @@ def profile_model(
                     fwd_duration, bwd_duration = torchsparse_tune_timer(
                         model, inputs, tune_with_bwd
                     )
-                    configs_all[group_idx][
-                        (
-                            dummy_config.epsilon,
-                            dummy_config.mm_thresh,
-                            dummy_config.split_mask_num,
-                            dummy_config.split_mask_num_bwd,
-                            dummy_config.dataflow,
-                            dummy_config.ifsort,
-                            dummy_config.FOD_fusion,
-                        )
-                    ].stable_add(fwd_duration, bwd_duration)
+                    configs_all[group_idx][_config_key(dummy_config)].stable_add(
+                        fwd_duration, bwd_duration
+                    )
 
 
 # @torch.no_grad()
@@ -379,7 +372,7 @@ def tune(
     save_dir: str = ".torchsparse-tune",
     tune_tag: str = "temp",
     force_retune: bool = False,
-    dataflow_range: List = [F.Dataflow.ImplicitGEMM],
+    dataflow_range: List = None,
     dataflow_prune: bool = False,
     tune_with_bwd: bool = False,
     verbose: bool = True,
@@ -395,6 +388,13 @@ def tune(
             run `model(*collect_fn(data))` where data is yielded by data_loader.
             The default case handles {'input': SparseTensor,...} for data.
     """
+    if dataflow_range is None:
+        dataflow_range = (
+            [F.Dataflow.ImplicitGEMM]
+            if tune_with_bwd
+            else [F.Dataflow.ImplicitGEMM, F.Dataflow.FetchOnDemand]
+        )
+
     # An iterator can only be used once, so use with care.
     if isinstance(data_loader, Iterator):
         if not skip_warning:
@@ -518,17 +518,23 @@ def tune(
                 # Search for the best dataflow
                 for group_idx in dataflow_all:
                     time_min = -1.0
-                    for dataflow in dataflow_all[group_idx]:
+                    for dataflow, FOD_fusion in dataflow_all[group_idx]:
                         if (
                             time_min < 0
                             or time_min
-                            > dataflow_all[group_idx][(dataflow)].get_total_time()
+                            > dataflow_all[group_idx][
+                                (dataflow, FOD_fusion)
+                            ].get_total_time()
                         ):
                             time_min = dataflow_all[group_idx][
-                                (dataflow)
+                                (dataflow, FOD_fusion)
                             ].get_total_time()
                             dataflow_best = dataflow
-                    group_dataflow[group_idx] = {"dataflow": dataflow_best}
+                            FOD_fusion_best = FOD_fusion
+                    group_dataflow[group_idx] = {
+                        "dataflow": dataflow_best,
+                        "FOD_fusion": FOD_fusion_best,
+                    }
 
         # Stage 2: Tune best configs for each group
         count = 0
@@ -576,7 +582,14 @@ def tune(
                 dataflow,
                 ifsort,
                 FOD_fusion,
+                *rest,
             ) in configs_all[group_idx]:
+                if len(rest) >= 2:
+                    IGEMM_center_only = rest[0]
+                    wgrad_split_k = rest[1]
+                else:
+                    IGEMM_center_only = False
+                    wgrad_split_k = rest[0] if rest else 32
                 if (
                     time_min < 0
                     or time_min
@@ -589,6 +602,7 @@ def tune(
                             dataflow,
                             ifsort,
                             FOD_fusion,
+                            *rest,
                         )
                     ].get_total_time()
                 ):
@@ -601,6 +615,7 @@ def tune(
                             dataflow,
                             ifsort,
                             FOD_fusion,
+                            *rest,
                         )
                     ].get_total_time()
                     ep_best = ep
@@ -610,6 +625,8 @@ def tune(
                     dataflow_best = dataflow
                     ifsort_best = ifsort
                     FOD_fusion_best = FOD_fusion
+                    wgrad_split_k_best = wgrad_split_k
+                    IGEMM_center_only_best = IGEMM_center_only
             group_configs[group_idx] = {
                 "epsilon": ep_best,
                 "mm_thresh": thresh_best,
@@ -618,6 +635,8 @@ def tune(
                 "dataflow": dataflow_best,
                 "ifsort": ifsort_best,
                 "FOD_fusion": FOD_fusion_best,
+                "wgrad_split_k": wgrad_split_k_best,
+                "IGEMM_center_only": IGEMM_center_only_best,
             }
 
         # save tuned group configs
@@ -651,4 +670,10 @@ def tune(
                         "split_mask_num_bwd"
                     ]
                     new_config.FOD_fusion = group_configs[layer_group_idx]["FOD_fusion"]
+                    new_config.wgrad_split_k = group_configs[layer_group_idx].get(
+                        "wgrad_split_k", 32
+                    )
+                    new_config.IGEMM_center_only = group_configs[layer_group_idx].get(
+                        "IGEMM_center_only", False
+                    )
                     module._config = new_config.copy()
