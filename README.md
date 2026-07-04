@@ -1,4 +1,4 @@
-# Torch Lattice
+## Torch Lattice
 
 Torch Lattice is a work-in-progress fork of TorchSparse for sparse point-cloud computation.
 
