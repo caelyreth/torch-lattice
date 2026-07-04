@@ -2,8 +2,8 @@ from functools import partial
 
 import torch
 import torch.nn as nn
-import torchsparse
-import torchsparse.nn as spnn
+import torch_lattice
+import torch_lattice.nn as spnn
 
 import os, logging
 
@@ -86,7 +86,7 @@ class VoxelBackBone8xTS(nn.Module):
             'x_conv4': 64
         }
 
-        logging.warning('Built VoxelBackBone8x for TorchSparse')
+        logging.warning('Built VoxelBackBone8x for TorchLattice')
 
 
     def forward(self, batch_dict):
@@ -111,7 +111,7 @@ class VoxelBackBone8xTS(nn.Module):
         voxel_coords = voxel_coords.int()
         # input_sp_tensor = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
         spatial_range = (voxel_coords[:, 0].max().item() + 1,) + tuple(self.sparse_shape)
-        input_sp_tensor = torchsparse.SparseTensor(voxel_features, voxel_coords, spatial_range=spatial_range)  # dimension match
+        input_sp_tensor = torch_lattice.SparseTensor(voxel_features, voxel_coords, spatial_range=spatial_range)  # dimension match
         
 
         x = self.conv_input(input_sp_tensor)

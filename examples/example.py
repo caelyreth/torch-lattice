@@ -8,12 +8,12 @@ import torch.utils.data
 from torch import nn
 from torch.cuda import amp
 
-import torchsparse
-from torchsparse import SparseTensor
-from torchsparse import nn as spnn
-from torchsparse.nn import functional as F
-from torchsparse.utils.collate import sparse_collate_fn
-from torchsparse.utils.quantize import sparse_quantize
+import torch_lattice
+from torch_lattice import SparseTensor
+from torch_lattice import nn as spnn
+from torch_lattice.nn import functional as F
+from torch_lattice.utils.collate import sparse_collate_fn
+from torch_lattice.utils.quantize import sparse_quantize
 
 
 class RandomDataset:
@@ -97,10 +97,10 @@ if __name__ == "__main__":
         scaler.step(optimizer)
         scaler.update()
 
-    # enable torchsparse 2.0 inference
+    # enable torch_lattice 2.0 inference
     model.eval()
     # enable fused and locality-aware memory access optimization
-    torchsparse.backends.benchmark = True  # type: ignore
+    torch_lattice.backends.benchmark = True  # type: ignore
 
     with torch.no_grad():
         for k, feed_dict in enumerate(dataflow):

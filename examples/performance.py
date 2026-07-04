@@ -7,10 +7,10 @@ import torch.cuda
 import torch.nn as nn
 import torch.optim
 
-import torchsparse.nn as spnn
-from torchsparse import SparseTensor
-from torchsparse.utils.collate import sparse_collate_fn
-from torchsparse.utils.quantize import sparse_quantize
+import torch_lattice.nn as spnn
+from torch_lattice import SparseTensor
+from torch_lattice.utils.collate import sparse_collate_fn
+from torch_lattice.utils.quantize import sparse_quantize
 
 
 def generate_random_point_cloud(size=100000, voxel_size=0.2):

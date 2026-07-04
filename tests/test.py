@@ -1,5 +1,5 @@
 import unittest
-from torchsparse.nn import functional as F
+from torch_lattice.nn import functional as F
 from python import (
     check_single_layer_convolution_forward,
     check_to_dense_forward,

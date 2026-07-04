@@ -2,15 +2,15 @@ import numpy as np
 import torch
 from torch import nn
 
-from torchsparse import SparseTensor
-from torchsparse.backbones import SparseResNet21D, SparseResUNet42
-from torchsparse.utils.quantize import sparse_quantize
+from torch_lattice import SparseTensor
+from torch_lattice.backbones import SparseResNet21D, SparseResUNet42
+from torch_lattice.utils.quantize import sparse_quantize
 
 
 @torch.no_grad()
 def main() -> None:
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    from torchsparse.nn import functional as F
+    from torch_lattice.nn import functional as F
 
     F.set_kmap_mode("hashmap")
 

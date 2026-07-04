@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(torchsparse LANGUAGES CXX)
+project(torch_lattice LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,9 +16,9 @@ execute_process(
 )
 list(PREPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PREFIX}")
 
-option(TORCHSPARSE_FORCE_CPU "Build TorchSparse without CUDA sources" OFF)
+option(TORCH_LATTICE_FORCE_CPU "Build TorchLattice without CUDA sources" OFF)
 
-if(NOT TORCHSPARSE_FORCE_CPU)
+if(NOT TORCH_LATTICE_FORCE_CPU)
   enable_language(CUDA)
   find_package(CUDAToolkit REQUIRED)
 endif()
@@ -33,31 +33,31 @@ execute_process(
 )
 find_library(TORCH_PYTHON_LIBRARY torch_python PATHS "${TORCH_LIB_DIR}" REQUIRED NO_DEFAULT_PATH)
 
-file(GLOB_RECURSE TORCHSPARSE_CPU_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/torchsparse/backend/*_cpu.cpp"
+file(GLOB_RECURSE TORCH_LATTICE_CPU_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/torch_lattice/backend/*_cpu.cpp"
 )
-list(FILTER TORCHSPARSE_CPU_SOURCES EXCLUDE REGEX "/pybind_[^/]+\\.(cpp|cu)$")
+list(FILTER TORCH_LATTICE_CPU_SOURCES EXCLUDE REGEX "/pybind_[^/]+\\.(cpp|cu)$")
 
-if(TORCHSPARSE_FORCE_CPU)
-  set(TORCHSPARSE_PYBIND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/torchsparse/backend/pybind_cpu.cpp")
-  set(TORCHSPARSE_SOURCES ${TORCHSPARSE_PYBIND_SOURCE} ${TORCHSPARSE_CPU_SOURCES})
+if(TORCH_LATTICE_FORCE_CPU)
+  set(TORCH_LATTICE_PYBIND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/torch_lattice/backend/pybind_cpu.cpp")
+  set(TORCH_LATTICE_SOURCES ${TORCH_LATTICE_PYBIND_SOURCE} ${TORCH_LATTICE_CPU_SOURCES})
 else()
-  file(GLOB_RECURSE TORCHSPARSE_CUDA_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/torchsparse/backend/*_cuda.cu"
+  file(GLOB_RECURSE TORCH_LATTICE_CUDA_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/torch_lattice/backend/*_cuda.cu"
   )
-  list(FILTER TORCHSPARSE_CUDA_SOURCES EXCLUDE REGEX "/pybind_[^/]+\\.(cpp|cu)$")
-  set(TORCHSPARSE_PYBIND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/torchsparse/backend/pybind_cuda.cu")
-  set(TORCHSPARSE_SOURCES
-    ${TORCHSPARSE_PYBIND_SOURCE}
-    ${TORCHSPARSE_CPU_SOURCES}
-    ${TORCHSPARSE_CUDA_SOURCES}
+  list(FILTER TORCH_LATTICE_CUDA_SOURCES EXCLUDE REGEX "/pybind_[^/]+\\.(cpp|cu)$")
+  set(TORCH_LATTICE_PYBIND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/torch_lattice/backend/pybind_cuda.cu")
+  set(TORCH_LATTICE_SOURCES
+    ${TORCH_LATTICE_PYBIND_SOURCE}
+    ${TORCH_LATTICE_CPU_SOURCES}
+    ${TORCH_LATTICE_CUDA_SOURCES}
   )
 endif()
 
-add_library(backend MODULE ${TORCHSPARSE_SOURCES})
+add_library(backend MODULE ${TORCH_LATTICE_SOURCES})
 
 target_include_directories(backend PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}/torchsparse/backend"
+  "${CMAKE_CURRENT_SOURCE_DIR}/torch_lattice/backend"
   "${TORCH_INCLUDE_DIRS}"
   "${Python_INCLUDE_DIRS}"
 )
@@ -78,7 +78,7 @@ target_compile_options(backend PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-O3>
 )
 
-if(NOT TORCHSPARSE_FORCE_CPU)
+if(NOT TORCH_LATTICE_FORCE_CPU)
   set_target_properties(backend PROPERTIES
     CUDA_STANDARD 17
     CUDA_STANDARD_REQUIRED ON
@@ -95,7 +95,7 @@ endif()
 set_target_properties(backend PROPERTIES
   PREFIX ""
   OUTPUT_NAME "backend"
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/torchsparse"
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/torch_lattice"
 )
 
-install(TARGETS backend LIBRARY DESTINATION torchsparse)
+install(TARGETS backend LIBRARY DESTINATION torch_lattice)

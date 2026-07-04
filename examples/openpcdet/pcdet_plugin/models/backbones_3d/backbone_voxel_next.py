@@ -3,13 +3,13 @@ import torch
 import torch.nn as nn
 import os
 from pcdet.utils.spconv_utils import spconv
-import torchsparse
-import torchsparse.nn as spnn
-from torchsparse.utils.tensor_cache import TensorCache
+import torch_lattice
+import torch_lattice.nn as spnn
+from torch_lattice.utils.tensor_cache import TensorCache
 import logging
 
 
-def ts_to_spconv(tensor: torchsparse.SparseTensor, spatial_shape, batch_size):
+def ts_to_spconv(tensor: torch_lattice.SparseTensor, spatial_shape, batch_size):
     return spconv.SparseConvTensor(
         features=tensor.feats,
         indices=tensor.coords,
@@ -26,7 +26,7 @@ def spconv_to_ts(tensor: spconv.SparseConvTensor):
     else:
         raise NotImplementedError("Only 3D and 4D tensors are supported.")
 
-    return torchsparse.SparseTensor(
+    return torch_lattice.SparseTensor(
         feats=tensor.features,
         coords=tensor.indices,
         spatial_range=spatial_range
@@ -97,7 +97,7 @@ class VoxelResBackBone8xVoxelNeXtTS(nn.Module):
         super().__init__()
         self.model_cfg = model_cfg
 #        norm_fn = partial(nn.BatchNorm1d, eps=1e-3, momentum=0.01)
-        norm_fn = partial(torchsparse.nn.BatchNorm, eps=1e-3, momentum=0.01)
+        norm_fn = partial(torch_lattice.nn.BatchNorm, eps=1e-3, momentum=0.01)
 
         spconv_kernel_sizes = model_cfg.get('SPCONV_KERNEL_SIZES', [3, 3, 3, 3])
         channels = model_cfg.get('CHANNELS', [16, 32, 64, 128, 128])
@@ -178,7 +178,7 @@ class VoxelResBackBone8xVoxelNeXtTS(nn.Module):
             'x_conv3': channels[2],
             'x_conv4': channels[3]
         }
-        logging.info('VoxelNeXt TorchSparse')
+        logging.info('VoxelNeXt TorchLattice')
 
     def bev_out(self, x_conv):
         features_cat = x_conv.feats
@@ -190,7 +190,7 @@ class VoxelResBackBone8xVoxelNeXtTS(nn.Module):
         features_unique = features_cat.new_zeros((indices_unique.shape[0], features_cat.shape[1]))
         features_unique.index_add_(0, _inv, features_cat)
 
-        x_out = torchsparse.SparseTensor(
+        x_out = torch_lattice.SparseTensor(
             feats=features_unique,
             coords=indices_unique,
             spatial_range=(x_conv.spatial_range[0],) + spatial_shape + (channels, )
@@ -210,7 +210,7 @@ class VoxelResBackBone8xVoxelNeXtTS(nn.Module):
         """
         voxel_features, voxel_coords = batch_dict['voxel_features'], batch_dict['voxel_coords']
         batch_size = batch_dict['batch_size']
-        input_sp_tensor = torchsparse.SparseTensor(
+        input_sp_tensor = torch_lattice.SparseTensor(
             feats=voxel_features,
             coords=voxel_coords.int(),
             spatial_range=(batch_size, ) + tuple(self.sparse_shape) + (4, )

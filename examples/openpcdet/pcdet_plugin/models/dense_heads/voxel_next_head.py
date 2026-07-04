@@ -8,7 +8,7 @@ from pcdet.utils import loss_utils
 from pcdet.utils.spconv_utils import spconv
 import copy
 from easydict import EasyDict
-import torchsparse.nn as spnn
+import torch_lattice.nn as spnn
 import os
 
 class seqz(nn.Module):

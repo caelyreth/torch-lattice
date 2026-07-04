@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark TorchSparse hot-path sparse tensor operations.
+"""Benchmark TorchLattice hot-path sparse tensor operations.
 
 The default input size is 600K active coordinates.  Use ``--smoke`` for a quick
 correctness/runability check.
@@ -20,19 +20,19 @@ from typing import Callable
 
 import torch
 
-import torchsparse
-from torchsparse import SparseTensor
-from torchsparse import nn as spnn
-from torchsparse.nn import functional as F
-from torchsparse.nn.functional.conv.kmap.downsample import spdownsample
-from torchsparse.nn.functional.conv.kmap.upsample import spupsample_generative
-from torchsparse.nn.functional.devoxelize import calc_ti_weights
-from torchsparse.nn.functional.devoxelize import spdevoxelize
-from torchsparse.nn.functional.hash import sphash
-from torchsparse.nn.functional.query import sphashquery
-from torchsparse.nn.functional.voxelize import spvoxelize
-from torchsparse.operators import cat, generative_add
-from torchsparse.utils import to_dense
+import torch_lattice
+from torch_lattice import SparseTensor
+from torch_lattice import nn as spnn
+from torch_lattice.nn import functional as F
+from torch_lattice.nn.functional.conv.kmap.downsample import spdownsample
+from torch_lattice.nn.functional.conv.kmap.upsample import spupsample_generative
+from torch_lattice.nn.functional.devoxelize import calc_ti_weights
+from torch_lattice.nn.functional.devoxelize import spdevoxelize
+from torch_lattice.nn.functional.hash import sphash
+from torch_lattice.nn.functional.query import sphashquery
+from torch_lattice.nn.functional.voxelize import spvoxelize
+from torch_lattice.operators import cat, generative_add
+from torch_lattice.utils import to_dense
 
 
 PATTERNS = ("isolated", "line", "plane", "block2", "block3", "block5", "block8", "grid")
@@ -165,7 +165,7 @@ def _trim(coords: torch.Tensor, n: int) -> torch.Tensor:
 
 
 def make_coords(pattern: str, n: int, device: torch.device) -> torch.Tensor:
-    """Return int32 coordinates in TorchSparse order [batch, x, y, z]."""
+    """Return int32 coordinates in TorchLattice order [batch, x, y, z]."""
     if pattern == "isolated":
         i = torch.arange(n, device=device, dtype=torch.int64)
         # Widely spaced points minimize local neighbor hits.
@@ -787,9 +787,9 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = args.allow_tf32
-    torchsparse.backends.allow_tf32 = args.allow_tf32
-    torchsparse.backends.allow_fp16 = args.allow_fp16
-    torchsparse.backends.benchmark = True
+    torch_lattice.backends.allow_tf32 = args.allow_tf32
+    torch_lattice.backends.allow_fp16 = args.allow_fp16
+    torch_lattice.backends.benchmark = True
 
     timer = CudaTimer()
     results: list[BenchResult] = []

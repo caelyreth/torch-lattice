@@ -5,14 +5,14 @@ import pytest
 import torch
 from torch import nn
 
-import torchsparse
-from torchsparse import nn as spnn
-from torchsparse.nn import functional as F
-from torchsparse.nn.functional.conv.kmap.downsample import spdownsample
-from torchsparse.nn.functional.conv.kmap.upsample import spupsample_generative
-from torchsparse.nn.functional.hash import sphash
-from torchsparse.operators import generative_add
-from torchsparse.utils import make_ntuple
+import torch_lattice
+from torch_lattice import nn as spnn
+from torch_lattice.nn import functional as F
+from torch_lattice.nn.functional.conv.kmap.downsample import spdownsample
+from torch_lattice.nn.functional.conv.kmap.upsample import spupsample_generative
+from torch_lattice.nn.functional.hash import sphash
+from torch_lattice.operators import generative_add
+from torch_lattice.utils import make_ntuple
 
 from .test_utils import *
 
@@ -24,12 +24,12 @@ def test_generative_add_shared_coords_uses_sparse_add_fast_path():
         [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
         dtype=torch.int32,
     )
-    a = torchsparse.SparseTensor(
+    a = torch_lattice.SparseTensor(
         torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
         coords,
         spatial_range=(1, 3, 1, 1),
     )
-    b = torchsparse.SparseTensor(
+    b = torch_lattice.SparseTensor(
         torch.tensor([[0.5, 1.0], [1.5, 2.0], [2.5, 3.0]]),
         coords,
         spatial_range=(1, 3, 1, 1),
@@ -48,12 +48,12 @@ def test_generative_add_equal_cloned_coords_uses_sparse_add_fast_path():
         [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
         dtype=torch.int32,
     )
-    a = torchsparse.SparseTensor(
+    a = torch_lattice.SparseTensor(
         torch.tensor([[1.0], [2.0], [3.0]]),
         coords,
         spatial_range=(1, 3, 1, 1),
     )
-    b = torchsparse.SparseTensor(
+    b = torch_lattice.SparseTensor(
         torch.tensor([[4.0], [5.0], [6.0]]),
         coords.clone(),
         spatial_range=(1, 3, 1, 1),
@@ -67,7 +67,7 @@ def test_generative_add_equal_cloned_coords_uses_sparse_add_fast_path():
 
 
 def test_generative_add_shifted_coords_keeps_union_semantics():
-    a = torchsparse.SparseTensor(
+    a = torch_lattice.SparseTensor(
         torch.tensor([[1.0], [2.0], [3.0]]),
         torch.tensor(
             [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
@@ -75,7 +75,7 @@ def test_generative_add_shifted_coords_keeps_union_semantics():
         ),
         spatial_range=(1, 4, 1, 1),
     )
-    b = torchsparse.SparseTensor(
+    b = torch_lattice.SparseTensor(
         torch.tensor([[10.0], [20.0], [30.0]]),
         torch.tensor(
             [[0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]],
@@ -108,8 +108,8 @@ def test_generative_add_shifted_cuda_matches_reference_by_coordinate():
         device="cuda",
     )
     feats = torch.arange(12, dtype=torch.float16, device="cuda").reshape(4, 3)
-    a = torchsparse.SparseTensor(feats, coords, spatial_range=(1, 5, 1, 1))
-    b = torchsparse.SparseTensor(
+    a = torch_lattice.SparseTensor(feats, coords, spatial_range=(1, 5, 1, 1))
+    b = torch_lattice.SparseTensor(
         feats * 0.5,
         coords + torch.tensor([0, 1, 0, 0], dtype=torch.int32, device="cuda"),
         spatial_range=(1, 5, 1, 1),
@@ -150,7 +150,7 @@ def test_group_norm_single_batch_matches_dense_reference():
         dtype=torch.int32,
     )
     feats = torch.arange(16, dtype=torch.float32).reshape(4, 4)
-    tensor = torchsparse.SparseTensor(
+    tensor = torch_lattice.SparseTensor(
         feats,
         coords,
         spatial_range=(1, 4, 1, 1),
@@ -185,7 +185,7 @@ def test_group_norm_multi_batch_matches_per_sample_reference():
         dtype=torch.int32,
     )
     feats = torch.arange(16, dtype=torch.float32).reshape(4, 4)
-    tensor = torchsparse.SparseTensor(feats, coords)
+    tensor = torch_lattice.SparseTensor(feats, coords)
     norm = spnn.GroupNorm(num_groups=2, num_channels=4, affine=False)
 
     out = norm(tensor)
@@ -213,7 +213,7 @@ def test_global_pool_single_batch_matches_feature_reduction():
         dtype=torch.int32,
     )
     feats = torch.tensor([[1.0, 4.0], [3.0, 2.0], [5.0, 0.0]])
-    tensor = torchsparse.SparseTensor(
+    tensor = torch_lattice.SparseTensor(
         feats,
         coords,
         spatial_range=(1, 3, 1, 1),
@@ -234,7 +234,7 @@ def test_global_pool_multi_batch_matches_per_sample_reduction():
         dtype=torch.int32,
     )
     feats = torch.tensor([[1.0, 4.0], [3.0, 2.0], [5.0, 8.0], [7.0, 6.0]])
-    tensor = torchsparse.SparseTensor(feats, coords)
+    tensor = torch_lattice.SparseTensor(feats, coords)
 
     torch.testing.assert_close(
         F.global_avg_pool(tensor),
@@ -267,7 +267,7 @@ def test_spdownsample_simple_fast_path_matches_python_fallback(monkeypatch):
         kernel_size=2,
         spatial_range=spatial_range,
     )
-    monkeypatch.delattr(torchsparse.backend, "downsample_simple_cuda")
+    monkeypatch.delattr(torch_lattice.backend, "downsample_simple_cuda")
     fallback = spdownsample(
         coords,
         stride=2,
@@ -291,13 +291,13 @@ def test_spdownsample_simple_fast_path_skips_negative_coordinate_mode(monkeypatc
         calls["fast"] += 1
         raise AssertionError("fast path should be skipped")
 
-    monkeypatch.setattr(torchsparse.backend, "downsample_simple_cuda", fake_fast)
-    old = torchsparse.tensor.get_allow_negative_coordinates()
-    torchsparse.tensor.set_allow_negative_coordinates(True)
+    monkeypatch.setattr(torch_lattice.backend, "downsample_simple_cuda", fake_fast)
+    old = torch_lattice.tensor.get_allow_negative_coordinates()
+    torch_lattice.tensor.set_allow_negative_coordinates(True)
     try:
         out = spdownsample(coords, stride=2, kernel_size=2)
     finally:
-        torchsparse.tensor.set_allow_negative_coordinates(old)
+        torch_lattice.tensor.set_allow_negative_coordinates(old)
 
     assert calls["fast"] == 0
     assert out.numel() > 0
@@ -344,7 +344,7 @@ def test_spupsample_generative_fast_path_matches_python_fallback(monkeypatch):
         kernel_size=2,
         spatial_range=spatial_range,
     )
-    monkeypatch.delattr(torchsparse.backend, "upsample_generative_cuda")
+    monkeypatch.delattr(torch_lattice.backend, "upsample_generative_cuda")
     fallback = spupsample_generative(
         coords,
         stride=2,
@@ -402,7 +402,7 @@ class TestSparseConv(nn.Module):
 
     def forward(self, feats, coords):
         coords = coords.int()
-        ts_tensor = torchsparse.SparseTensor(feats, coords)
+        ts_tensor = torch_lattice.SparseTensor(feats, coords)
         return self.net(ts_tensor)
 
 
@@ -595,7 +595,7 @@ def test_subm_implicit_gemm_prunes_impossible_thin_shape_offsets():
     config.kmap_mode = "hashmap_on_the_fly"
     config.ifsort = False
 
-    x = torchsparse.SparseTensor(
+    x = torch_lattice.SparseTensor(
         feats.detach().clone().requires_grad_(True),
         coords,
         spatial_range=(1, points, 1, 1),
@@ -608,7 +608,7 @@ def test_subm_implicit_gemm_prunes_impossible_thin_shape_offsets():
     ref_feats = feats.detach().clone().requires_grad_(True)
     ref_weight = weight.detach().clone().requires_grad_(True)
     ref = F.conv3d(
-        torchsparse.SparseTensor(ref_feats, coords, spatial_range=None),
+        torch_lattice.SparseTensor(ref_feats, coords, spatial_range=None),
         ref_weight,
         3,
         padding=1,
@@ -645,7 +645,7 @@ def test_implicit_gemm_conv3d_no_grad_fast_path_matches_autograd_path():
     config.ifsort = False
 
     ref_out = F.conv3d(
-        torchsparse.SparseTensor(feats.clone().requires_grad_(True), coords),
+        torch_lattice.SparseTensor(feats.clone().requires_grad_(True), coords),
         weight.clone().requires_grad_(True),
         3,
         padding=1,
@@ -653,7 +653,7 @@ def test_implicit_gemm_conv3d_no_grad_fast_path_matches_autograd_path():
         training=False,
     )
     fast_out = F.conv3d(
-        torchsparse.SparseTensor(feats.clone(), coords),
+        torch_lattice.SparseTensor(feats.clone(), coords),
         weight.clone(),
         3,
         padding=1,
@@ -709,7 +709,7 @@ def test_implicit_gemm_conv3d_no_grad_fast_path_dispatch(monkeypatch):
     monkeypatch.setattr(F.conv.ImplicitGEMMConvolutionFuntion, "apply", fake_apply)
 
     F.conv3d(
-        torchsparse.SparseTensor(feats, coords),
+        torch_lattice.SparseTensor(feats, coords),
         weight,
         3,
         padding=1,
@@ -717,21 +717,21 @@ def test_implicit_gemm_conv3d_no_grad_fast_path_dispatch(monkeypatch):
     )
     with torch.no_grad():
         F.conv3d(
-            torchsparse.SparseTensor(feats.clone().requires_grad_(True), coords),
+            torch_lattice.SparseTensor(feats.clone().requires_grad_(True), coords),
             weight.clone().requires_grad_(True),
             3,
             padding=1,
             config=config.copy(),
         )
     F.conv3d(
-        torchsparse.SparseTensor(feats.clone().requires_grad_(True), coords),
+        torch_lattice.SparseTensor(feats.clone().requires_grad_(True), coords),
         weight,
         3,
         padding=1,
         config=config.copy(),
     )
     F.conv3d(
-        torchsparse.SparseTensor(feats, coords),
+        torch_lattice.SparseTensor(feats, coords),
         weight.clone().requires_grad_(True),
         3,
         padding=1,
@@ -805,14 +805,14 @@ def test_conv3d_no_grad_fast_path_dispatches_non_igemm_dataflows(
 
     with torch.no_grad():
         F.conv3d(
-            torchsparse.SparseTensor(feats.clone().requires_grad_(True), coords),
+            torch_lattice.SparseTensor(feats.clone().requires_grad_(True), coords),
             weight.clone().requires_grad_(True),
             3,
             padding=1,
             config=config.copy(),
         )
     F.conv3d(
-        torchsparse.SparseTensor(feats.clone().requires_grad_(True), coords),
+        torch_lattice.SparseTensor(feats.clone().requires_grad_(True), coords),
         weight,
         3,
         padding=1,
@@ -867,14 +867,14 @@ def test_non_igemm_no_grad_compact_kmap_matches_full_weight_reference(
     config.FOD_fusion = False
 
     compact = F.conv3d(
-        torchsparse.SparseTensor(feats.clone(), coords, spatial_range=spatial_range),
+        torch_lattice.SparseTensor(feats.clone(), coords, spatial_range=spatial_range),
         weight,
         3,
         padding=1,
         config=config.copy(),
     )
     ref = F.conv3d(
-        torchsparse.SparseTensor(
+        torch_lattice.SparseTensor(
             feats.clone().requires_grad_(True),
             coords,
             spatial_range=None,
@@ -902,7 +902,7 @@ def test_native_fod_compactor_matches_reference_layout():
         device="cuda",
     )
 
-    nbmaps, nbsizes, nbaddrs, qnbaddrs = torchsparse.backend.compact_out_in_map_fod(
+    nbmaps, nbsizes, nbaddrs, qnbaddrs = torch_lattice.backend.compact_out_in_map_fod(
         out_in_map
     )
     results = torch.t(out_in_map).contiguous()
@@ -914,7 +914,7 @@ def test_native_fod_compactor_matches_reference_layout():
     ref_nbmaps = ref_nbmaps.transpose(0, 1).int().contiguous()
     ref_nbaddrs = torch.zeros((ref_nbsizes.numel() + 1), dtype=torch.int32, device="cuda")
     ref_qnbaddrs = torch.zeros_like(ref_nbaddrs)
-    torchsparse.backend.exclusive_scan_quantified_wrapper(
+    torch_lattice.backend.exclusive_scan_quantified_wrapper(
         ref_nbsizes.numel(), ref_nbsizes, ref_nbaddrs, ref_qnbaddrs
     )
 

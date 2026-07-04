@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 import torch
 
-import torchsparse
-import torchsparse.nn as spnn
-from torchsparse.nn import functional as F
-from torchsparse.nn.functional.hash import sphash
+import torch_lattice
+import torch_lattice.nn as spnn
+from torch_lattice.nn import functional as F
+from torch_lattice.nn.functional.hash import sphash
 
 from .test_utils import generate_feature_map
 
@@ -34,7 +34,7 @@ def test_spcrop_uses_spatial_xyz_not_batch_column():
         device="cuda",
     )
     feats = torch.arange(coords.size(0), dtype=torch.float32, device="cuda").view(-1, 1)
-    tensor = torchsparse.SparseTensor(feats=feats, coords=coords, spatial_range=(2, 3, 2, 3))
+    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(2, 3, 2, 3))
 
     cropped = F.spcrop(tensor, coords_min=(0, 0, 1), coords_max=(2, 2, 3))
 
@@ -111,7 +111,7 @@ def test_bev_modules_default_to_z_coordinate_dim(module_cls):
         device="cuda",
     )
     feats = torch.ones((coords.size(0), 1), dtype=torch.float32, device="cuda")
-    tensor = torchsparse.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 3, 3, 4))
+    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 3, 3, 4))
 
     out = module(tensor)
 
@@ -126,7 +126,7 @@ def test_bev_height_compression_default_uses_z_coordinate_dim():
         device="cuda",
     )
     feats = torch.ones((coords.size(0), 1), dtype=torch.float32, device="cuda")
-    tensor = torchsparse.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 3, 4, 5))
+    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 3, 4, 5))
 
     out = module(tensor)
 
@@ -149,7 +149,7 @@ def test_compact_on_the_fly_kmap_uses_int32_hashmap():
         device="cuda",
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
-    tensor = torchsparse.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
+    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
 
     try:
         spnn.Conv3d(4, 4, kernel_size=3, bias=False).cuda().half()(tensor)
@@ -179,7 +179,7 @@ def test_wide_coordinate_stride2_conv_uses_int64_kmap_safely():
         device="cuda",
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
-    tensor = torchsparse.SparseTensor(
+    tensor = torch_lattice.SparseTensor(
         feats=feats,
         coords=coords,
         spatial_range=(1, 10_199_984, 11_400_071, 13_800_191),
@@ -210,7 +210,7 @@ def test_fetch_on_demand_fused_falls_back_for_large_quantified_map():
         dim=1,
     ).contiguous()
     feats = torch.randn((coords.size(0), 32), dtype=torch.float16, device="cuda")
-    tensor = torchsparse.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 64, 64, 64))
+    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 64, 64, 64))
 
     try:
         out = spnn.Conv3d(32, 32, kernel_size=3, bias=False).cuda().half()(tensor)
@@ -228,7 +228,7 @@ def test_kernel_map_cache_is_separated_by_dataflow():
         device="cuda",
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
-    tensor = torchsparse.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
+    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
     conv = spnn.Conv3d(4, 4, kernel_size=3, bias=False).cuda().half()
 
     config = F.conv_config.get_default_conv_config().copy()
@@ -266,7 +266,7 @@ def test_fetch_on_demand_fusion_flag_controls_quantified_kmap_metadata():
     try:
         config.FOD_fusion = False
         F.conv_config.set_global_conv_config(config)
-        no_fusion = torchsparse.SparseTensor(
+        no_fusion = torch_lattice.SparseTensor(
             feats=feats, coords=coords, spatial_range=(1, 4, 1, 1)
         )
         conv(no_fusion)
@@ -275,7 +275,7 @@ def test_fetch_on_demand_fusion_flag_controls_quantified_kmap_metadata():
 
         config.FOD_fusion = True
         F.conv_config.set_global_conv_config(config)
-        fused = torchsparse.SparseTensor(
+        fused = torch_lattice.SparseTensor(
             feats=feats, coords=coords, spatial_range=(1, 4, 1, 1)
         )
         conv(fused)

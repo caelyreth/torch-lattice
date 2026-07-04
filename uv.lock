@@ -2,9 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.14"
 
-[options]
-prerelease-mode = "allow"
-
 [[package]]
 name = "colorama"
 version = "0.4.6"
@@ -438,7 +435,7 @@ wheels = [
 ]
 
 [[package]]
-name = "torchsparse"
+name = "torch-lattice"
 version = "2.1.0"
 source = { editable = "." }
 dependencies = [

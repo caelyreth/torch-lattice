@@ -28,8 +28,8 @@ from mmdet3d.structures.bbox_3d import (LiDARInstance3DBoxes,
                                         rotation_3d_in_axis, xywhr2xyxyr)
 from mmdet3d.utils.typing_utils import SamplingResultList
 
-import torchsparse
-from torchsparse import SparseTensor
+import torch_lattice
+from torch_lattice import SparseTensor
 
 import os
 
@@ -73,7 +73,7 @@ class MaxPool3DWrap(torch.nn.Module):
         #                            sparse_idx[:, 2], sparse_idx[:, 3]]
         # coords = sparse_idx.int().contiguous()
         # spatial_range = (coords[:, 0].max().item() + 1,) + tuple(sparse_shape)
-        # pooled_1 = torchsparse.SparseTensor(pooled_1, coords, spatial_range=spatial_range, batch_size=batch_size)
+        # pooled_1 = torch_lattice.SparseTensor(pooled_1, coords, spatial_range=spatial_range, batch_size=batch_size)
         # return  pooled_1
 
 @MODELS.register_module("PartA2BboxHeadTS")
@@ -140,7 +140,7 @@ class PartA2BboxHeadTS(BaseModule):
         self.loss_cls = MODELS.build(loss_cls)
         self.use_sigmoid_cls = loss_cls.get('use_sigmoid', False)
 
-        sparse_norm_cfg = dict(type='TorchSparseBatchNorm', eps=1e-3, momentum=0.01)
+        sparse_norm_cfg = dict(type='TorchLatticeBatchNorm', eps=1e-3, momentum=0.01)
 
         assert down_conv_channels[-1] == shared_fc_channels[0]
 
@@ -156,7 +156,7 @@ class PartA2BboxHeadTS(BaseModule):
                     padding=1,
                     norm_cfg=sparse_norm_cfg,
                     # indice_key=f'rcnn_part{i}',  # @Yingqi: commented it out
-                    conv_type='TorchSparseConv3d'))  # @Yingqi: changed to TorchSparseConv3d
+                    conv_type='TorchLatticeConv3d'))  # @Yingqi: changed to TorchLatticeConv3d
             part_channel_last = channel
         self.part_conv = nn.Sequential(*part_conv)
 
@@ -171,7 +171,7 @@ class PartA2BboxHeadTS(BaseModule):
                     padding=1,
                     norm_cfg=sparse_norm_cfg,
                     # indice_key=f'rcnn_seg{i}',
-                    conv_type='TorchSparseConv3d'))
+                    conv_type='TorchLatticeConv3d'))
             seg_channel_last = channel
         self.seg_conv = nn.Sequential(*seg_conv)
 
@@ -325,8 +325,8 @@ class PartA2BboxHeadTS(BaseModule):
                                  sparse_idx[:, 2], sparse_idx[:, 3]]
         coords = sparse_idx.int().contiguous()
         spatial_range = (rcnn_batch_size,) + tuple(sparse_shape)  # first index become 99??? # coords[:, 0].max().item() + 1
-        part_features = torchsparse.SparseTensor(part_features, coords, spatial_range=spatial_range)
-        seg_features = torchsparse.SparseTensor(seg_features, coords, spatial_range=spatial_range)
+        part_features = torch_lattice.SparseTensor(part_features, coords, spatial_range=spatial_range)
+        seg_features = torch_lattice.SparseTensor(seg_features, coords, spatial_range=spatial_range)
 
         # forward rcnn network
         x_part = self.part_conv(part_features)
@@ -334,7 +334,7 @@ class PartA2BboxHeadTS(BaseModule):
 
         merged_feature = torch.cat((x_rpn.feats, x_part.feats),
                                    dim=1)  # (N, C)
-        shared_feature = torchsparse.SparseTensor(merged_feature, coords, spatial_range=spatial_range)  # spatial_range = spatial_range  # (100,14,14,14)
+        shared_feature = torch_lattice.SparseTensor(merged_feature, coords, spatial_range=spatial_range)  # spatial_range = spatial_range  # (100,14,14,14)
         # spatial range becomes 99 above
 
         x = self.conv_down(shared_feature)

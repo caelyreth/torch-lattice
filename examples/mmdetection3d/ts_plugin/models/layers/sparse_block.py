@@ -1,5 +1,5 @@
 from torch import nn
-import torchsparse.nn as spnn
+import torch_lattice.nn as spnn
 
 from ..backbones.resnet import BasicBlockTS
 from mmcv.cnn import build_conv_layer, build_norm_layer
@@ -64,7 +64,7 @@ def make_sparse_convmodule_ts(
     kernel_size,
     stride=1,
     padding=0,
-    conv_type="TorchSparseConv3d",
+    conv_type="TorchLatticeConv3d",
     norm_cfg=None,
     order=("conv", "norm", "act"),
     activation_type="relu",
@@ -133,5 +133,5 @@ def make_sparse_convmodule_ts(
             else:
                 raise NotImplementedError
     layers = nn.Sequential(*layers)
-    logging.info("Made TorchSparse Module")
+    logging.info("Made TorchLattice Module")
     return layers

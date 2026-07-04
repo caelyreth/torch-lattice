@@ -5,17 +5,17 @@ import torch
 from torch import Tensor, nn
 
 from mmdet3d.models.layers.spconv import IS_SPCONV2_AVAILABLE
-from mmdet3d.models.layers.torchsparse import IS_TORCHSPARSE_AVAILABLE
+from mmdet3d.models.layers.torch_lattice import IS_TORCH_LATTICE_AVAILABLE
 
 if IS_SPCONV2_AVAILABLE:
     from spconv.pytorch import SparseConvTensor, SparseSequential
 else:
     from mmcv.ops import SparseConvTensor, SparseSequential
 
-if IS_TORCHSPARSE_AVAILABLE:
-    import torchsparse
+if IS_TORCH_LATTICE_AVAILABLE:
+    import torch_lattice
 else:
-    raise Exception("No TorchSparse Available")
+    raise Exception("No TorchLattice Available")
 
 from mmengine.model import BaseModule
 
@@ -49,8 +49,8 @@ class SparseUNetTS(BaseModule):
         decoder_paddings (tuple[tuple[int]]): Paddings of each decode block.
     """
 
-    DEFAULT_CONV_CFG = {"type": "TorchSparseConv3d"}
-    DEFAULT_NORM_CFG = {"type": "TorchSparseBatchNorm", "eps": 1e-3, "momentum": 0.01}
+    DEFAULT_CONV_CFG = {"type": "TorchLatticeConv3d"}
+    DEFAULT_NORM_CFG = {"type": "TorchLatticeBatchNorm", "eps": 1e-3, "momentum": 0.01}
 
 
     def __init__(
@@ -98,7 +98,7 @@ class SparseUNetTS(BaseModule):
                 3,
                 norm_cfg=norm_cfg,
                 padding=1,
-                conv_type='TorchSparseConv3d',
+                conv_type='TorchLatticeConv3d',
                 order=('conv', ))
         else:  # post activate
             self.conv_input = make_sparse_convmodule_ts(
@@ -107,8 +107,8 @@ class SparseUNetTS(BaseModule):
                 3,
                 norm_cfg=norm_cfg,
                 padding=1,
-                conv_type='TorchSparseConv3d',)
-            # import torchsparse.nn as spnn
+                conv_type='TorchLatticeConv3d',)
+            # import torch_lattice.nn as spnn
             # self.conv_input = nn.Sequential(
             #     spnn.Conv3d(in_channels, self.base_channels, 3, padding=1, bias=False),
             # )
@@ -126,7 +126,7 @@ class SparseUNetTS(BaseModule):
             norm_cfg=norm_cfg,
             padding=0,
             indice_key='spconv_down2',
-            conv_type='TorchSparseConv3d')
+            conv_type='TorchLatticeConv3d')
     
 
     def forward(self, voxel_features: Tensor, coors: Tensor,
@@ -143,7 +143,7 @@ class SparseUNetTS(BaseModule):
             dict[str, torch.Tensor]: Backbone features.
         """
         coors = coors.int()
-        input_sp_tensor = torchsparse.SparseTensor(voxel_features, coors, spatial_range=(coors[:, 0].max().item() + 1,) + tuple(self.sparse_shape))
+        input_sp_tensor = torch_lattice.SparseTensor(voxel_features, coors, spatial_range=(coors[:, 0].max().item() + 1,) + tuple(self.sparse_shape))
         x = self.conv_input(input_sp_tensor)
 
         encode_features = []
@@ -256,7 +256,7 @@ class SparseUNetTS(BaseModule):
                             stride=2,
                             padding=padding,
                             indice_key=f'spconv{i + 1}',
-                            conv_type='TorchSparseConv3d'))
+                            conv_type='TorchLatticeConv3d'))
                 else:
                     blocks_list.append(
                         make_block(
@@ -266,7 +266,7 @@ class SparseUNetTS(BaseModule):
                             norm_cfg=norm_cfg,
                             padding=padding,
                             indice_key=f'subm{i + 1}',
-                            conv_type='TorchSparseConv3d'))
+                            conv_type='TorchLatticeConv3d'))
                 in_channels = out_channels
             stage_name = f'encoder_layer{i + 1}'
             stage_layers = SparseSequential(*blocks_list)
@@ -294,7 +294,7 @@ class SparseUNetTS(BaseModule):
                     in_channels,
                     block_channels[0],
                     conv_cfg=dict(
-                        type='TorchSparseConv3d'),  # type='TorchSparseConv3d', indice_key=f'subm{block_num - i}'),
+                        type='TorchLatticeConv3d'),  # type='TorchLatticeConv3d', indice_key=f'subm{block_num - i}'),
                     norm_cfg=norm_cfg))
             setattr(
                 self, f'merge_layer{block_num - i}',
@@ -305,7 +305,7 @@ class SparseUNetTS(BaseModule):
                     norm_cfg=norm_cfg,
                     padding=paddings[0],
                     indice_key=f'subm{block_num - i}',
-                    conv_type='TorchSparseConv3d'))
+                    conv_type='TorchLatticeConv3d'))
             if block_num - i != 1:
                 setattr(
                     self, f'upsample_layer{block_num - i}',
@@ -316,7 +316,7 @@ class SparseUNetTS(BaseModule):
                         stride=2,
                         norm_cfg=norm_cfg,
                         indice_key=f'spconv{block_num - i}',
-                        conv_type='TorchSparseConv3d',
+                        conv_type='TorchLatticeConv3d',
                         transposed=True))
             else:
                 # use submanifold conv instead of inverse conv
@@ -330,6 +330,6 @@ class SparseUNetTS(BaseModule):
                         norm_cfg=norm_cfg,
                         padding=paddings[1],
                         indice_key='subm1',
-                        conv_type='TorchSparseConv3d'))
+                        conv_type='TorchLatticeConv3d'))
             in_channels = block_channels[2]
         # print(self)

@@ -11,7 +11,7 @@ from mmdet.registry import MODELS
 from mmdet.models.layers import ResLayer
 
 import os
-from torchsparse.nn import ReLU as TSReLU
+from torch_lattice.nn import ReLU as TSReLU
 
 # Inherite BascBlock and change attribute
 

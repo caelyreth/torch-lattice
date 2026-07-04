@@ -2,7 +2,7 @@ import torch
 import math, os
 import numpy as np
 import torch.nn as nn
-import torchsparse.nn as spnn
+import torch_lattice.nn as spnn
 
 from pcdet.ops.pointnet2.pointnet2_stack import pointnet2_modules as pointnet2_stack_modules
 from pcdet.ops.pointnet2.pointnet2_stack import pointnet2_utils as pointnet2_stack_utils
@@ -172,7 +172,7 @@ class VoxelSetAbstractionTS(nn.Module):
         )
         self.num_point_features = self.model_cfg.NUM_OUTPUT_FEATURES
         self.num_point_features_before_fusion = c_in
-        logging.warning("Built VoxelSetAbstraction TorchSparse")
+        logging.warning("Built VoxelSetAbstraction TorchLattice")
 
     def interpolate_from_bev_features(self, keypoints, bev_features, batch_size, bev_stride):
         """

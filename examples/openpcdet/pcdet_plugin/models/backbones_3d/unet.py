@@ -9,10 +9,10 @@ from .backbone3d import post_act_block_ts
 
 import os
 
-import torchsparse.nn as spnn
-import torchsparse
+import torch_lattice.nn as spnn
+import torch_lattice
 
-def ts_replace_feature(x: torchsparse.SparseTensor, features):
+def ts_replace_feature(x: torch_lattice.SparseTensor, features):
     x.feats = features
     return x
 
@@ -33,12 +33,12 @@ class SparseBasicBlockTS(spconv.SparseModule):
         self.downsample = downsample
         self.stride = stride
 
-    def forward(self, x: torchsparse.SparseTensor):
+    def forward(self, x: torch_lattice.SparseTensor):
         identity = x.feats
 
         assert x.feats.dim() == 2, 'x.features.dim()=%d' % x.features.dim()
 
-        out: torchsparse.SparseTensor = self.conv1(x)
+        out: torch_lattice.SparseTensor = self.conv1(x)
         # out = ts_replace_feature(out, self.bn1(out.feats))
         # out = ts_replace_feature(out, self.relu(out.feats))
         out = self.bn1(out)
@@ -154,7 +154,7 @@ class UNetV2TS(nn.Module):
         return x
 
     @staticmethod
-    def channel_reduction(x: torchsparse.SparseTensor, out_channels):
+    def channel_reduction(x: torch_lattice.SparseTensor, out_channels):
         """
         Args:
             x: x.features (N, C1)
@@ -184,7 +184,7 @@ class UNetV2TS(nn.Module):
         """
         voxel_features, voxel_coords = batch_dict['voxel_features'], batch_dict['voxel_coords']
         batch_size = batch_dict['batch_size']
-        input_sp_tensor = torchsparse.SparseTensor(
+        input_sp_tensor = torch_lattice.SparseTensor(
             feats=voxel_features,
             coords=voxel_coords.int(),
             spatial_range=(batch_size,) + tuple(self.sparse_shape)

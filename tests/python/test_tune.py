@@ -1,17 +1,17 @@
 from collections import defaultdict
 
 import pytest
-import torchsparse
+import torch_lattice
 import torch
-from torchsparse.nn import functional as F
-from torchsparse.nn.functional.conv.func.fetch_on_demand import (
+from torch_lattice.nn import functional as F
+from torch_lattice.nn.functional.conv.func.fetch_on_demand import (
     FetchOnDemandConvolutionFuntion,
 )
-from torchsparse.nn.functional.conv.func.implicit_gemm import (
+from torch_lattice.nn.functional.conv.func.implicit_gemm import (
     ImplicitGEMMConvolutionFuntion,
     _resolve_wgrad_split_k,
 )
-from torchsparse.utils import tune as tune_module
+from torch_lattice.utils import tune as tune_module
 
 
 def test_recursive_apply_preserves_tuple_inputs(monkeypatch):
@@ -46,7 +46,7 @@ def test_dataflow_selector_profiles_fetch_on_demand_fused_and_no_fusion(monkeypa
     monkeypatch.setattr(tune_module, "set_group_config", fake_set_group_config)
     monkeypatch.setattr(tune_module, "clear_model_config", lambda model: None)
     monkeypatch.setattr(tune_module, "clear_tensor_cache", lambda inputs: inputs)
-    monkeypatch.setattr(tune_module, "torchsparse_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.0))
+    monkeypatch.setattr(tune_module, "torch_lattice_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.0))
 
     group_to_name = defaultdict(list)
     group_to_name[((1, 1, 1), (3, 3, 3), (1, 1, 1), (1, 1, 1))].append("conv")
@@ -80,7 +80,7 @@ def test_profile_model_pruned_fetch_on_demand_uses_selected_fusion(monkeypatch):
     monkeypatch.setattr(tune_module, "set_group_config", fake_set_group_config)
     monkeypatch.setattr(tune_module, "clear_model_config", lambda model: None)
     monkeypatch.setattr(tune_module, "clear_tensor_cache", lambda inputs: inputs)
-    monkeypatch.setattr(tune_module, "torchsparse_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.0))
+    monkeypatch.setattr(tune_module, "torch_lattice_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.0))
 
     group_idx = ((1, 1, 1), (3, 3, 3), (1, 1, 1), (1, 1, 1))
     group_to_name = defaultdict(list)
@@ -179,7 +179,7 @@ def test_tune_default_dataflows_include_fod_for_forward_only(monkeypatch, tmp_pa
 
     monkeypatch.setattr(tune_module, "profile_model", fake_profile_model)
     monkeypatch.setattr(tune_module, "recursive_apply", lambda value, func: value)
-    monkeypatch.setattr(torchsparse.backends, "benchmark", True)
+    monkeypatch.setattr(torch_lattice.backends, "benchmark", True)
 
     tune_module.tune(
         DummyModel(),
@@ -246,7 +246,7 @@ def test_tune_backward_can_explicitly_include_fetch_on_demand(monkeypatch, tmp_p
 
     monkeypatch.setattr(tune_module, "profile_model", fake_profile_model)
     monkeypatch.setattr(tune_module, "recursive_apply", lambda value, func: value)
-    monkeypatch.setattr(torchsparse.backends, "benchmark", True)
+    monkeypatch.setattr(torch_lattice.backends, "benchmark", True)
 
     tune_module.tune(
         DummyModel(),
@@ -275,7 +275,7 @@ def test_profile_model_training_profiles_fetch_on_demand_variants(monkeypatch):
     monkeypatch.setattr(tune_module, "set_group_config", fake_set_group_config)
     monkeypatch.setattr(tune_module, "clear_model_config", lambda model: None)
     monkeypatch.setattr(tune_module, "clear_tensor_cache", lambda inputs: inputs)
-    monkeypatch.setattr(tune_module, "torchsparse_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.5))
+    monkeypatch.setattr(tune_module, "torch_lattice_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.5))
 
     group_idx = ((1, 1, 1), (3, 3, 3), (1, 1, 1), (1, 1, 1))
     group_to_name = defaultdict(list)
@@ -312,7 +312,7 @@ def test_profile_model_training_profiles_implicit_wgrad_split_k(monkeypatch):
     monkeypatch.setattr(tune_module, "set_group_config", fake_set_group_config)
     monkeypatch.setattr(tune_module, "clear_model_config", lambda model: None)
     monkeypatch.setattr(tune_module, "clear_tensor_cache", lambda inputs: inputs)
-    monkeypatch.setattr(tune_module, "torchsparse_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.5))
+    monkeypatch.setattr(tune_module, "torch_lattice_tune_timer", lambda model, inputs, tune_with_bwd: (1.0, 0.5))
 
     group_idx = ((1, 1, 1), (3, 3, 3), (1, 1, 1), (1, 1, 1))
     group_to_name = defaultdict(list)
@@ -374,10 +374,10 @@ def test_implicit_gemm_backward_passes_configured_wgrad_split_k(monkeypatch):
         )
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_sorted_cuda", fake_dgrad
+        torch_lattice.backend, "conv_forward_implicit_gemm_sorted_cuda", fake_dgrad
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_backward_wgrad_implicit_gemm_sorted_cuda", fake_wgrad
+        torch_lattice.backend, "conv_backward_wgrad_implicit_gemm_sorted_cuda", fake_wgrad
     )
 
     class Ctx:
@@ -461,16 +461,16 @@ def test_implicit_gemm_backward_respects_unsorted_forward_dispatch(monkeypatch):
         raise AssertionError("unsorted forward config should use unsorted backward kernels")
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_cuda", fake_dgrad_unsorted
+        torch_lattice.backend, "conv_forward_implicit_gemm_cuda", fake_dgrad_unsorted
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_backward_wgrad_implicit_gemm_cuda", fake_wgrad_unsorted
+        torch_lattice.backend, "conv_backward_wgrad_implicit_gemm_cuda", fake_wgrad_unsorted
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_sorted_cuda", fail_sorted
+        torch_lattice.backend, "conv_forward_implicit_gemm_sorted_cuda", fail_sorted
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_backward_wgrad_implicit_gemm_sorted_cuda", fail_sorted
+        torch_lattice.backend, "conv_backward_wgrad_implicit_gemm_sorted_cuda", fail_sorted
     )
 
     class Ctx:
@@ -508,10 +508,10 @@ def test_implicit_gemm_center_only_uses_matmul_fast_path(monkeypatch):
         raise AssertionError("center-only ImplicitGEMM should not launch backend kernels")
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_cuda", fail_backend
+        torch_lattice.backend, "conv_forward_implicit_gemm_cuda", fail_backend
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_sorted_cuda", fail_backend
+        torch_lattice.backend, "conv_forward_implicit_gemm_sorted_cuda", fail_backend
     )
 
     points = 17
@@ -550,16 +550,16 @@ def test_implicit_gemm_center_only_backward_uses_matmul_fast_path(monkeypatch):
         raise AssertionError("center-only ImplicitGEMM backward should not launch backend kernels")
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_cuda", fail_backend
+        torch_lattice.backend, "conv_forward_implicit_gemm_cuda", fail_backend
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_sorted_cuda", fail_backend
+        torch_lattice.backend, "conv_forward_implicit_gemm_sorted_cuda", fail_backend
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_backward_wgrad_implicit_gemm_cuda", fail_backend
+        torch_lattice.backend, "conv_backward_wgrad_implicit_gemm_cuda", fail_backend
     )
     monkeypatch.setattr(
-        torchsparse.backend, "conv_backward_wgrad_implicit_gemm_sorted_cuda", fail_backend
+        torch_lattice.backend, "conv_backward_wgrad_implicit_gemm_sorted_cuda", fail_backend
     )
 
     points = 23
@@ -619,7 +619,7 @@ def test_implicit_gemm_active_weight_cache_invalidates_on_weight_update(monkeypa
         return input[:, :num_out_channels].clone()
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_implicit_gemm_cuda", fake_backend
+        torch_lattice.backend, "conv_forward_implicit_gemm_cuda", fake_backend
     )
 
     points = 8
@@ -666,10 +666,10 @@ def test_fetch_on_demand_center_only_uses_matmul_fast_path(monkeypatch):
         raise AssertionError("center-only FOD should not launch backend kernels")
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_forward_fetch_on_demand_cuda", fail_backend
+        torch_lattice.backend, "conv_forward_fetch_on_demand_cuda", fail_backend
     )
     monkeypatch.setattr(
-        torchsparse.backend,
+        torch_lattice.backend,
         "conv_forward_fetch_on_demand_no_fusion_cuda",
         fail_backend,
     )
@@ -707,7 +707,7 @@ def test_fetch_on_demand_center_only_backward_uses_matmul_fast_path(monkeypatch)
         raise AssertionError("center-only FOD backward should not use gather-scatter")
 
     monkeypatch.setattr(
-        torchsparse.backend, "conv_backward_gather_scatter_cuda", fail_backward
+        torch_lattice.backend, "conv_backward_gather_scatter_cuda", fail_backward
     )
 
     points = 23

@@ -238,4 +238,4 @@ def convert_voxelnext(ckpt_before, ckpt_after):
     torch.save(cp_old, ckpt_after)
 
 
-convert_voxelnext("/home/yingqi/repo/OpenPCDet/models/VoxelNeXt/voxelnext_nuscenes_kernel1.pth", "/home/yingqi/repo/torchsparse-dev/converted_models/openpcdet/VoxelNeXt/voxelnext_nuscenes_kernel1.pth")
+convert_voxelnext("/home/yingqi/repo/OpenPCDet/models/VoxelNeXt/voxelnext_nuscenes_kernel1.pth", "/home/yingqi/repo/torch-lattice-dev/converted_models/openpcdet/VoxelNeXt/voxelnext_nuscenes_kernel1.pth")

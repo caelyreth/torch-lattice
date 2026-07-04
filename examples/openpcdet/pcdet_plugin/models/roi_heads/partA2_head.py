@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 import torch.nn as nn
-import torchsparse
-import torchsparse.nn as spnn
+import torch_lattice
+import torch_lattice.nn as spnn
 from pcdet.models.roi_heads import RoIHeadTemplate
 from pcdet.ops.roiaware_pool3d import roiaware_pool3d_utils
 
@@ -215,8 +215,8 @@ class PartA2FCHeadTS(RoIHeadTemplate):
         coords = sparse_idx.int().contiguous()
         # part_features = spconv.SparseConvTensor(part_features, coords, sparse_shape, batch_size_rcnn)
         # rpn_features = spconv.SparseConvTensor(rpn_features, coords, sparse_shape, batch_size_rcnn)
-        part_features = torchsparse.SparseTensor(coords=coords, feats=part_features,)
-        rpn_features = torchsparse.SparseTensor(coords=coords, feats=rpn_features)
+        part_features = torch_lattice.SparseTensor(coords=coords, feats=part_features,)
+        rpn_features = torch_lattice.SparseTensor(coords=coords, feats=rpn_features)
 
         # forward rcnn network
         x_part = self.conv_part(part_features)
@@ -226,7 +226,7 @@ class PartA2FCHeadTS(RoIHeadTemplate):
         # shared_feature = spconv.SparseConvTensor(merged_feature, coords, sparse_shape, batch_size_rcnn)
 
         # >>> Replacing the line shared_feature = ... >>>
-        shared_feature = torchsparse.SparseTensor(coords=coords, feats=merged_feature, spatial_range=(batch_size_rcnn, *sparse_shape))
+        shared_feature = torch_lattice.SparseTensor(coords=coords, feats=merged_feature, spatial_range=(batch_size_rcnn, *sparse_shape))
         shared_feature = shared_feature.dense()
         N, D, H, W, C = shared_feature.shape
         shared_feature = shared_feature.permute(0, 2, 3, 4, 1).contiguous().reshape(N, H, W, C*D).permute(0, 3, 1, 2).contiguous()

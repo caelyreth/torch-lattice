@@ -4,9 +4,9 @@ import numpy as np
 import torch
 from torch import nn
 
-import torchsparse
-from torchsparse import nn as spnn
-from torchsparse.utils import make_ntuple, to_dense
+import torch_lattice
+from torch_lattice import nn as spnn
+from torch_lattice.utils import make_ntuple, to_dense
 
 from .test_utils import generate_feature_map
 

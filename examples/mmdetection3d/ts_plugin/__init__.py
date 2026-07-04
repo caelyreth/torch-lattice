@@ -2,6 +2,6 @@ from .models import *
 
 from mmengine.registry import MODELS
 
-from torchsparse.nn import BatchNorm
+from torch_lattice.nn import BatchNorm
 
-MODELS.register_module('TorchSparseBatchNorm', force=True, module=BatchNorm)
+MODELS.register_module('TorchLatticeBatchNorm', force=True, module=BatchNorm)

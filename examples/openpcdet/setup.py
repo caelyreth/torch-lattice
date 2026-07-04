@@ -41,5 +41,5 @@ setup(
     packages=find_packages(),
 )
 
-# Define global initialize torchsparse backend
+# Define global initialize torch_lattice backend
 # design init function, let pcdet traverse the folder we modified. Then in pcdet plugin reference folders. 

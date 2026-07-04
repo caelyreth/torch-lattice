@@ -6,8 +6,8 @@ import torch.nn as nn
 from mmdet3d.registry import MODELS
 from mmengine.runner import amp
 
-import torchsparse
-from torchsparse.nn import functional as F
+import torch_lattice
+from torch_lattice.nn import functional as F
 F.set_conv_mode(1)
 
 import os, logging
@@ -38,8 +38,8 @@ class SparseEncoderTS(nn.Module):
             Defaults to 'conv_module'.
     """
 
-    DEFAULT_CONV_CFG = {"type": "TorchSparseConv3d"}
-    DEFAULT_NORM_CFG = {"type": "TorchSparseBatchNorm", "eps": 1e-3, "momentum": 0.01}
+    DEFAULT_CONV_CFG = {"type": "TorchLatticeConv3d"}
+    DEFAULT_NORM_CFG = {"type": "TorchLatticeBatchNorm", "eps": 1e-3, "momentum": 0.01}
 
     def __init__(
         self,
@@ -83,7 +83,7 @@ class SparseEncoderTS(nn.Module):
                 norm_cfg=norm_cfg,
                 padding=1,
                 # indice_key="subm1",
-                conv_type="TorchSparseConv3d",
+                conv_type="TorchLatticeConv3d",
                 order=("conv",),
             )
         else:  # post activate
@@ -94,7 +94,7 @@ class SparseEncoderTS(nn.Module):
                 norm_cfg=norm_cfg,
                 padding=1,
                 # indice_key="subm1",
-                conv_type="TorchSparseConv3d",
+                conv_type="TorchLatticeConv3d",
             )
 
         encoder_out_channels = self.make_encoder_layers(
@@ -109,10 +109,10 @@ class SparseEncoderTS(nn.Module):
             norm_cfg=norm_cfg,
             padding=0,
             # indice_key="spconv_down2",
-            conv_type="TorchSparseConv3d",
+            conv_type="TorchLatticeConv3d",
         )
         # print("\033[92m" + "Sparse Encoder" + "\033[0m")
-        logging.info("Using TorchSparse SparseEncoder")
+        logging.info("Using TorchLattice SparseEncoder")
 
     @amp.autocast(enabled=False)
     def forward(self, voxel_features, coors, batch_size, **kwargs):
@@ -129,7 +129,7 @@ class SparseEncoderTS(nn.Module):
         """
         coors = coors.int()
         spatial_range = (coors[:, 0].max().item() + 1,) + tuple(self.sparse_shape)
-        input_sp_tensor = torchsparse.SparseTensor(voxel_features, coors, spatial_range=spatial_range)
+        input_sp_tensor = torch_lattice.SparseTensor(voxel_features, coors, spatial_range=spatial_range)
         x = self.conv_input(input_sp_tensor)
 
         encode_features = []
@@ -201,7 +201,7 @@ class SparseEncoderTS(nn.Module):
                             stride=2,
                             padding=padding,
                             # indice_key=f"spconv{i + 1}",
-                            conv_type="TorchSparseConv3d",
+                            conv_type="TorchLatticeConv3d",
                         )
                     )
                 elif block_type == "basicblock":
@@ -215,7 +215,7 @@ class SparseEncoderTS(nn.Module):
                                 stride=2,
                                 padding=padding,
                                 # indice_key=f"spconv{i + 1}",
-                                conv_type="TorchSparseConv3d",
+                                conv_type="TorchLatticeConv3d",
                             )
                         )
                     else:
@@ -237,7 +237,7 @@ class SparseEncoderTS(nn.Module):
                             norm_cfg=norm_cfg,
                             padding=padding,
                             # indice_key=f"subm{i + 1}",
-                            conv_type="TorchSparseConv3d",
+                            conv_type="TorchLatticeConv3d",
                         )
                     )
                 in_channels = out_channels

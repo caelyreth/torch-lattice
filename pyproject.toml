@@ -1,5 +1,5 @@
 [project]
-name = "torchsparse"
+name = "torch-lattice"
 version = "2.1.0"
 description = "Sparse convolution library for modern PyTorch and CUDA."
 readme = "README.md"
@@ -17,8 +17,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mit-han-lab/torchsparse"
-Documentation = "http://torchsparse-docs.github.io/"
+Homepage = "https://github.com/caelyreth/torch-lattice"
+Documentation = "http://torch-lattice-docs.github.io/"
 
 [project.optional-dependencies]
 test = [
@@ -45,7 +45,7 @@ explicit = true
 torch = { index = "pytorch-cu128" }
 
 [tool.scikit-build]
-wheel.packages = ["torchsparse"]
+wheel.packages = ["torch_lattice"]
 build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake.define]
@@ -61,7 +61,7 @@ split_before_logical_operator = true
 split_before_bitwise_operator = true
 
 [tool.isort]
-known_first_party = ["torchsparse"]
+known_first_party = ["torch_lattice"]
 
 [tool.pydocstyle]
 convention = "google"

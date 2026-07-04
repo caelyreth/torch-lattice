@@ -1,4 +1,4 @@
-"""This is the model converter to convert a SpConv model to TorchSparse model. 
+"""This is the model converter to convert a SpConv model to TorchLattice model. 
 """
 import argparse
 import torch
@@ -169,7 +169,7 @@ def convert_model_weights(ckpt_before, ckpt_after, model, legacy=False):
 
 
 def convert_weights_cmd():
-    """Convert the weights of a model from SpConv to TorchSparse.
+    """Convert the weights of a model from SpConv to TorchLattice.
 
     :param ckpt_before: Path to the SpConv checkpoint
     :type ckpt_before: str
@@ -183,7 +183,7 @@ def convert_weights_cmd():
     # ckpt_before, ckpt_after, v_spconv="1", framework="mmdet3d"
 
     # argument parser
-    parser = argparse.ArgumentParser(description="Convert SpConv model to TorchSparse model")
+    parser = argparse.ArgumentParser(description="Convert SpConv model to TorchLattice model")
     parser.add_argument("--ckpt_before", help="Path to the SpConv checkpoint")
     parser.add_argument("--ckpt_after", help="Path to the output folder of the converted checkpoint.")
     parser.add_argument("--cfg_path", help="Path to the config file of the model")
@@ -207,7 +207,7 @@ def convert_weights_cmd():
     
 
 def convert_weights(ckpt_before: str, ckpt_after: str, cfg_path: str, v_spconv: int = 1, framework: str = "mmdet3d"):
-    """Convert the weights of a model from SpConv to TorchSparse.
+    """Convert the weights of a model from SpConv to TorchLattice.
 
     :param ckpt_before: _description_
     :type ckpt_before: str
