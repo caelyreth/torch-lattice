@@ -148,3 +148,61 @@ def test_quantized_artifact_export_stores_packed_weights(tmp_path):
     assert "0.weight.weight" in weights
     assert "0.weight.scales" in weights
     assert "0.weight.biases" in weights
+
+
+def test_sparse_activation_modules_and_norm_runtime():
+    x = _sparse(torch.tensor([[0.3, -0.4, 0.5, -0.6], [0.7, 0.2, -0.1, 0.9]]))
+    for module in (
+        spnn.GELU(),
+        spnn.Sigmoid(),
+        spnn.Tanh(),
+        spnn.Softplus(),
+        spnn.LayerNorm(4),
+        spnn.RMSNorm(4),
+    ):
+        out = module(x)
+        assert isinstance(out, SparseTensor)
+        assert torch.equal(out.coords, x.coords)
+        assert out.feats.shape == x.feats.shape
+
+
+def test_export_activation_and_norm_modules_mlir():
+    model = nn.Sequential(
+        spnn.Conv3d(4, 4, kernel_size=1),
+        spnn.GELU(approximate="tanh"),
+        spnn.Sigmoid(),
+        spnn.Tanh(),
+        spnn.Softplus(beta=2.0, threshold=10.0),
+        spnn.LayerNorm(4),
+        spnn.RMSNorm(4),
+    ).eval()
+    builder = TorchLatticeExportBuilder(input_dtype="f32")
+    lower_fx_module(builder, model)
+    graph = builder.to_mlir()
+    assert graph.count(" = lattice.activation ") == 4
+    assert "kind = #lattice.activation<gelu>" in graph
+    assert "approximate = #lattice.gelu_approx<tanh>" in graph
+    assert "kind = #lattice.activation<sigmoid>" in graph
+    assert "kind = #lattice.activation<tanh>" in graph
+    assert "kind = #lattice.activation<softplus>" in graph
+    assert "lattice.layer_norm" in graph
+    assert "lattice.rms_norm" in graph
+
+
+def test_export_dense_head_activations_and_norms_mlir():
+    model = nn.Sequential(
+        spnn.GlobalAvgPool(),
+        nn.LayerNorm(2),
+        nn.GELU(),
+        nn.Sigmoid(),
+        nn.Tanh(),
+        nn.Softplus(),
+        nn.Linear(2, 2),
+    ).eval()
+    builder = TorchLatticeExportBuilder(input_dtype="f32", batch_size=1)
+    lower_fx_module(builder, model)
+    graph = builder.to_mlir()
+    assert "lattice.global_pool" in graph
+    assert "lattice.layer_norm" in graph
+    assert graph.count(" = lattice.activation ") == 4
+    assert "lattice.linear" in graph

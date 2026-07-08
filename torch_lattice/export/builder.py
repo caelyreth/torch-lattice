@@ -187,16 +187,17 @@ class TorchLatticeExportBuilder:
             return self.conv3d(name, module, input)
         if isinstance(module, spnn.BatchNorm):
             return self.batch_norm(name, module, input)
+        if isinstance(module, (spnn.LayerNorm, nn.LayerNorm)):
+            return self.layer_norm(name, module, input)
+        if _is_rms_norm(module):
+            return self.rms_norm(name, module, input)
         if isinstance(module, spnn.InstanceNorm):
-            raise ValueError("InstanceNorm export is not supported by the lattice MLIR slice.")
+            raise ValueError("InstanceNorm export is not supported without a dedicated lattice normalization op.")
         if isinstance(module, spnn.GroupNorm):
-            raise ValueError("GroupNorm export is not supported by the lattice MLIR slice.")
-        if isinstance(module, (spnn.ReLU, nn.ReLU)):
-            return self.activation(name, "relu", input=input)
-        if isinstance(module, (spnn.LeakyReLU, nn.LeakyReLU)):
-            return self.activation(name, "leaky_relu", input=input, alpha=float(module.negative_slope))
-        if isinstance(module, (spnn.SiLU, nn.SiLU)):
-            return self.activation(name, "silu", input=input)
+            raise ValueError("GroupNorm export is not supported without a dedicated lattice normalization op.")
+        activation = _activation_spec(module)
+        if activation is not None:
+            return self.activation(name, input=input, **activation)
         if isinstance(module, spnn.Pool3d):
             return self.pool3d(name, module, input)
         if isinstance(module, spnn.GlobalAvgPool):
@@ -413,18 +414,78 @@ class TorchLatticeExportBuilder:
         )
         return ExportValue(out, "sparse_tensor", module.num_features)
 
+    def layer_norm(
+        self,
+        name: str,
+        module: nn.LayerNorm,
+        input: ExportValue | None = None,
+    ) -> ExportValue:
+        value = self._current_or(input)
+        sparse, features, output_kind = self._feature_input(name, value)
+        channels = _single_normalized_dim(module.normalized_shape, "LayerNorm")
+        dtype = self._dtype_for_module(module)
+        scale = self._optional_channel_weight(name, "weight", module.weight, dtype=dtype)
+        bias = self._optional_channel_weight(name, "bias", module.bias, family="bias", layout="bias_c", dtype=dtype)
+        if scale is None:
+            scale = self._constant_channel_weight(name, "weight", torch.ones(channels), dtype=dtype)
+        if bias is None:
+            bias = self._constant_channel_weight(name, "bias", torch.zeros(channels), family="bias", layout="bias_c", dtype=dtype)
+        out_features = self._builder.layer_norm(
+            input=features,
+            scale=scale,
+            bias=bias,
+            eps=float(module.eps),
+            result_type=_feature_type(channels, dtype),
+            result=f"{_safe_value_name(name)}_features",
+        )
+        return self._feature_output(name, sparse, out_features, output_kind, channels, dtype)
+
+    def rms_norm(
+        self,
+        name: str,
+        module: nn.Module,
+        input: ExportValue | None = None,
+    ) -> ExportValue:
+        value = self._current_or(input)
+        sparse, features, output_kind = self._feature_input(name, value)
+        channels = _single_normalized_dim(module.normalized_shape, "RMSNorm")
+        dtype = self._dtype_for_module(module)
+        scale = self._optional_channel_weight(name, "weight", getattr(module, "weight", None), dtype=dtype)
+        if scale is None:
+            scale = self._constant_channel_weight(name, "weight", torch.ones(channels), dtype=dtype)
+        out_features = self._builder.rms_norm(
+            input=features,
+            scale=scale,
+            eps=float(module.eps),
+            result_type=_feature_type(channels, dtype),
+            result=f"{_safe_value_name(name)}_features",
+        )
+        return self._feature_output(name, sparse, out_features, output_kind, channels, dtype)
+
     def activation(
         self,
         name: str,
         kind: str,
         *,
         input: ExportValue | None = None,
+        approximate: str = "none",
         alpha: float = 0.01,
+        beta: float = 1.0,
+        threshold: float = 20.0,
     ) -> ExportValue:
         value = self._current_or(input)
         if value.kind == "sparse_tensor":
             sparse, features = self._sparse_features(name, value)
-            out_features = self._activation_features(name, features, value, kind, alpha=alpha)
+            out_features = self._activation_features(
+                name,
+                features,
+                value,
+                kind,
+                approximate=approximate,
+                alpha=alpha,
+                beta=beta,
+                threshold=threshold,
+            )
             out = self._builder.sparse_with_features(
                 input=sparse,
                 features=out_features,
@@ -432,7 +493,16 @@ class TorchLatticeExportBuilder:
                 result=_safe_value_name(name),
             )
             return ExportValue(out, "sparse_tensor", value.channels)
-        out = self._activation_features(name, value.value, value, kind, alpha=alpha)
+        out = self._activation_features(
+            name,
+            value.value,
+            value,
+            kind,
+            approximate=approximate,
+            alpha=alpha,
+            beta=beta,
+            threshold=threshold,
+        )
         return ExportValue(out, "dense_tensor", value.channels)
 
     def global_pool(
@@ -544,6 +614,24 @@ class TorchLatticeExportBuilder:
             return value
         return self.current
 
+    def _feature_input(self, name: str, value: ExportValue):
+        if value.kind == "sparse_tensor":
+            sparse, features = self._sparse_features(name, value)
+            return sparse, features, "sparse_tensor"
+        self._require_dense_name(value, name)
+        return None, value.value, "dense_tensor"
+
+    def _feature_output(self, name: str, sparse, features, kind: str, channels: int | None, dtype: str) -> ExportValue:
+        if kind == "sparse_tensor":
+            out = self._builder.sparse_with_features(
+                input=sparse,
+                features=features,
+                result_type=SparseTensorType(dtype=dtype),
+                result=_safe_value_name(name),
+            )
+            return ExportValue(out, "sparse_tensor", channels)
+        return ExportValue(features, "dense_tensor", channels)
+
     def _sparse_features(self, name: str, value: ExportValue):
         self._require_sparse_name(value, name)
         channels = value.channels
@@ -560,14 +648,25 @@ class TorchLatticeExportBuilder:
         del coords, active
         return value.value, features
 
-    def _activation_features(self, name: str, features, value: ExportValue, kind: str, *, alpha: float):
+    def _activation_features(
+        self,
+        name: str,
+        features,
+        value: ExportValue,
+        kind: str,
+        *,
+        approximate: str,
+        alpha: float,
+        beta: float,
+        threshold: float,
+    ):
         return self._builder.activation(
             input=features,
             kind=kind,
-            approximate="none",
+            approximate=approximate,
             alpha=float(alpha),
-            beta=1.0,
-            threshold=20.0,
+            beta=float(beta),
+            threshold=float(threshold),
             result_type=_feature_type(value.channels, self.input_dtype),
             result=f"{_safe_value_name(name)}_features",
         )
@@ -700,6 +799,45 @@ def _weight_rows(tensor: torch.Tensor) -> tuple[torch.Tensor, int, int]:
         return rows, int(kx * ky * kz), int(out_channels)
     raise ValueError("quantized export supports linear, kernel-major, and 5D convolution weights.")
 
+
+
+
+def _activation_spec(module: nn.Module) -> dict[str, object] | None:
+    specs: tuple[tuple[type[nn.Module], dict[str, object]], ...] = (
+        ((spnn.ReLU, nn.ReLU), {"kind": "relu"}),
+        ((spnn.SiLU, nn.SiLU), {"kind": "silu"}),
+        ((spnn.Sigmoid, nn.Sigmoid), {"kind": "sigmoid"}),
+        ((spnn.Tanh, nn.Tanh), {"kind": "tanh"}),
+        ((spnn.GELU, nn.GELU), {"kind": "gelu"}),
+        ((spnn.Softplus, nn.Softplus), {"kind": "softplus"}),
+    )
+    for types, attrs in specs:
+        if isinstance(module, types):
+            out = dict(attrs)
+            if isinstance(module, (spnn.GELU, nn.GELU)):
+                out["approximate"] = str(module.approximate or "none")
+            if isinstance(module, (spnn.Softplus, nn.Softplus)):
+                out["beta"] = float(module.beta)
+                out["threshold"] = float(module.threshold)
+            return out
+    if isinstance(module, (spnn.LeakyReLU, nn.LeakyReLU)):
+        return {"kind": "leaky_relu", "alpha": float(module.negative_slope)}
+    return None
+
+
+def _is_rms_norm(module: nn.Module) -> bool:
+    return isinstance(module, spnn.RMSNorm) or (
+        hasattr(nn, "RMSNorm") and isinstance(module, nn.RMSNorm)
+    )
+
+
+def _single_normalized_dim(value, name: str) -> int:
+    if isinstance(value, int):
+        return int(value)
+    dims = tuple(int(item) for item in value)
+    if len(dims) != 1:
+        raise ValueError(f"{name} export expects one normalized feature dimension.")
+    return dims[0]
 
 def _conv_weight_to_mlx(module: spnn.Conv3d) -> torch.Tensor:
     kernel_size = _triple(module.kernel_size)
