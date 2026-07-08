@@ -95,6 +95,60 @@ def test_generative_add_shifted_coords_keeps_union_semantics():
     torch.testing.assert_close(out.feats, expected_feats)
 
 
+
+
+def test_sparse_binary_alignment_join_and_fill_semantics():
+    lhs = torch_lattice.SparseTensor(
+        torch.tensor([[1.0], [2.0], [3.0]]),
+        torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 4, 1, 1),
+    )
+    rhs = torch_lattice.SparseTensor(
+        torch.tensor([[10.0], [20.0], [30.0]]),
+        torch.tensor(
+            [[0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 4, 1, 1),
+    )
+
+    out = torch_lattice.sparse_sub(lhs, rhs, join="left", rhs_fill=1.5)
+
+    expected_coords = torch.tensor(
+        [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
+        dtype=torch.int32,
+    )
+    expected_feats = torch.tensor([[-0.5], [-8.0], [-17.0]])
+    torch.testing.assert_close(out.coords, expected_coords)
+    torch.testing.assert_close(out.feats, expected_feats)
+
+
+def test_sparse_cat_outer_aligns_missing_rows_with_zero_features():
+    lhs = torch_lattice.SparseTensor(
+        torch.tensor([[1.0], [2.0]]),
+        torch.tensor([[0, 0, 0, 0], [0, 1, 0, 0]], dtype=torch.int32),
+        spatial_range=(1, 3, 1, 1),
+    )
+    rhs = torch_lattice.SparseTensor(
+        torch.tensor([[10.0], [20.0]]),
+        torch.tensor([[0, 1, 0, 0], [0, 2, 0, 0]], dtype=torch.int32),
+        spatial_range=(1, 3, 1, 1),
+    )
+
+    out = torch_lattice.cat([lhs, rhs], join="outer")
+
+    expected_coords = torch.tensor(
+        [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
+        dtype=torch.int32,
+    )
+    expected_feats = torch.tensor([[1.0, 0.0], [2.0, 10.0], [0.0, 20.0]])
+    torch.testing.assert_close(out.coords, expected_coords)
+    torch.testing.assert_close(out.feats, expected_feats)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 def test_generative_add_shifted_cuda_matches_reference_by_coordinate():
     coords = torch.tensor(

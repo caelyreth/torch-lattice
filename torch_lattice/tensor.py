@@ -104,15 +104,20 @@ class SparseTensor:
         return to_dense(self.feats, self.coords, self.spatial_range)
 
     def __add__(self, other):
-        output = SparseTensor(
-            coords=self.coords,
-            feats=self.feats + other.feats,
-            stride=self.stride,
-            spatial_range=self.spatial_range,
-        )
-        output._caches = self._caches
-        return output
-    
+        from torch_lattice.operators import sparse_add
+
+        return sparse_add(self, other)
+
+    def __sub__(self, other):
+        from torch_lattice.operators import sparse_sub
+
+        return sparse_sub(self, other)
+
+    def __mul__(self, other):
+        from torch_lattice.operators import sparse_mul
+
+        return sparse_mul(self, other)
+
 class PointTensor:
     def __init__(self, feats, coords, idx_query=None, weights=None):
         self.F = feats

@@ -323,6 +323,37 @@ class TorchLatticeExportBuilder:
         )
         return ExportValue(out, "dense_tensor", module.out_features)
 
+    def sparse_binary(
+        self,
+        name: str,
+        lhs: ExportValue,
+        rhs: ExportValue,
+        op: str,
+        *,
+        join: str = "outer",
+        lhs_fill: float = 0.0,
+        rhs_fill: float = 0.0,
+    ) -> ExportValue:
+        self._require_sparse_name(lhs, f"sparse {op} lhs")
+        self._require_sparse_name(rhs, f"sparse {op} rhs")
+        if (
+            lhs.channels is not None
+            and rhs.channels is not None
+            and lhs.channels != rhs.channels
+        ):
+            raise ValueError(f"sparse {op} requires matching channel counts.")
+        out = self._builder.sparse_binary(
+            lhs=lhs.value,
+            rhs=rhs.value,
+            op=op,
+            join=join,
+            lhs_fill=float(lhs_fill),
+            rhs_fill=float(rhs_fill),
+            result_type=SparseTensorType(dtype=self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ExportValue(out, "sparse_tensor", lhs.channels or rhs.channels)
+
     def sparse_add(
         self,
         name: str,
@@ -330,22 +361,18 @@ class TorchLatticeExportBuilder:
         rhs: ExportValue,
         *,
         join: str = "outer",
+        lhs_fill: float = 0.0,
+        rhs_fill: float = 0.0,
     ) -> ExportValue:
-        self._require_sparse_name(lhs, "sparse add lhs")
-        self._require_sparse_name(rhs, "sparse add rhs")
-        if lhs.channels is not None and rhs.channels is not None and lhs.channels != rhs.channels:
-            raise ValueError("sparse add requires matching channel counts.")
-        out = self._builder.sparse_binary(
-            lhs=lhs.value,
-            rhs=rhs.value,
-            op="add",
+        return self.sparse_binary(
+            name,
+            lhs,
+            rhs,
+            "add",
             join=join,
-            lhs_fill=0.0,
-            rhs_fill=0.0,
-            result_type=SparseTensorType(dtype=self.input_dtype),
-            result=_safe_value_name(name),
+            lhs_fill=lhs_fill,
+            rhs_fill=rhs_fill,
         )
-        return ExportValue(out, "sparse_tensor", lhs.channels or rhs.channels)
 
     def sparse_cat(
         self,

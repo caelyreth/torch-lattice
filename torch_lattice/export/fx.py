@@ -46,16 +46,32 @@ _CAT_FUNCTIONS = frozenset(
     if fn is not None
 )
 
-_ADD_FUNCTIONS = frozenset(
-    fn
-    for fn in (
-        operator.add,
-        torch.add,
-        torch_lattice.generative_add,
-        lattice_ops.generative_add,
+_BINARY_FUNCTIONS = {
+    fn: op
+    for fn, op in (
+        (operator.add, "add"),
+        (torch.add, "add"),
+        (torch_lattice.generative_add, "add"),
+        (lattice_ops.generative_add, "add"),
+        (torch_lattice.sparse_add, "add"),
+        (lattice_ops.sparse_add, "add"),
+        (operator.sub, "sub"),
+        (torch.sub, "sub"),
+        (torch_lattice.sparse_sub, "sub"),
+        (lattice_ops.sparse_sub, "sub"),
+        (operator.mul, "mul"),
+        (torch.mul, "mul"),
+        (torch_lattice.sparse_mul, "mul"),
+        (lattice_ops.sparse_mul, "mul"),
+        (torch.maximum, "maximum"),
+        (torch_lattice.sparse_maximum, "maximum"),
+        (lattice_ops.sparse_maximum, "maximum"),
+        (torch.minimum, "minimum"),
+        (torch_lattice.sparse_minimum, "minimum"),
+        (lattice_ops.sparse_minimum, "minimum"),
     )
     if fn is not None
-)
+}
 
 _STRUCTURAL_FUNCTIONS = frozenset((operator.getitem,))
 
@@ -66,7 +82,9 @@ class LatticeTracer(fx.Tracer):
     def __init__(self) -> None:
         super().__init__(
             autowrap_modules=(torch_lattice, lattice_ops),
-            autowrap_functions=tuple(_CAT_FUNCTIONS | _ADD_FUNCTIONS),
+            autowrap_functions=tuple(
+                _CAT_FUNCTIONS | frozenset(_BINARY_FUNCTIONS)
+            ),
         )
 
     def is_leaf_module(self, module: nn.Module, module_qualified_name: str) -> bool:
@@ -104,8 +122,8 @@ class LatticeExportInterpreter(fx.Interpreter):
     ) -> Any:
         if target in _CAT_FUNCTIONS:
             return self._cat(args, kwargs)
-        if target in _ADD_FUNCTIONS:
-            return self._add(args, kwargs)
+        if target in _BINARY_FUNCTIONS:
+            return self._binary(_BINARY_FUNCTIONS[target], args, kwargs)
         if target in _STRUCTURAL_FUNCTIONS:
             return super().call_function(target, args, kwargs)
         raise ValueError(f"unsupported FX function for lattice export: {target}")
@@ -128,14 +146,25 @@ class LatticeExportInterpreter(fx.Interpreter):
             out = self.builder.sparse_cat(f"{stem}_{index}", out, value)
         return out
 
-    def _add(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> ExportValue:
+    def _binary(
+        self,
+        op: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> ExportValue:
         values = _export_values(args, kwargs)
         if len(values) != 2:
-            raise ValueError("lattice add export requires exactly two sparse values.")
-        return self.builder.sparse_add(
-            _current_node_name(self, "add"),
+            raise ValueError(
+                f"lattice {op} export requires exactly two sparse values."
+            )
+        return self.builder.sparse_binary(
+            _current_node_name(self, op),
             values[0],
             values[1],
+            op,
+            join=str(kwargs.get("join", _default_join(op))),
+            lhs_fill=float(kwargs.get("lhs_fill", 0.0)),
+            rhs_fill=float(kwargs.get("rhs_fill", 0.0)),
         )
 
 
@@ -153,6 +182,12 @@ def lower_fx_module(
     result = LatticeExportInterpreter(graph_module, builder).run(builder.current)
     builder.output(_single_output_value(result))
     return builder
+
+
+def _default_join(op: str) -> str:
+    if op in {"mul", "maximum", "minimum"}:
+        return "inner"
+    return "outer"
 
 
 def _single_export_value(

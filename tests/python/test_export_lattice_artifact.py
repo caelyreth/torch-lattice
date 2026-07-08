@@ -38,6 +38,33 @@ class SkipAddSparseModel(nn.Module):
         return self.act(self.left(x) + self.right(x))
 
 
+
+
+class BinarySparseModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.left = spnn.Conv3d(2, 2, kernel_size=1)
+        self.right = spnn.Conv3d(2, 2, kernel_size=1)
+
+    def forward(self, x):
+        return torch_lattice.sparse_sub(
+            self.left(x),
+            self.right(x),
+            join="left",
+            rhs_fill=1.5,
+        )
+
+
+class MulSparseModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.left = spnn.Conv3d(2, 2, kernel_size=1)
+        self.right = spnn.Conv3d(2, 2, kernel_size=1)
+
+    def forward(self, x):
+        return self.left(x) * self.right(x)
+
+
 class CatSparseModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -114,6 +141,40 @@ def test_export_fx_branch_cat_artifact(tmp_path):
     assert "join = #lattice.join<inner>" in graph
     assert weights["left.weight"].shape == (3, 1, 1, 1, 2)
     assert weights["right.weight"].shape == (4, 1, 1, 1, 2)
+
+
+
+
+def test_export_fx_sparse_binary_join_and_fill_artifact(tmp_path):
+    model = BinarySparseModel().eval()
+
+    report = export_lattice_artifact(
+        model,
+        tmp_path / "binary.lattice",
+        options=LatticeExportOptions(batch_size=2),
+    )
+    graph = report.graph_path.read_text(encoding="utf-8")
+
+    assert "lattice.sparse.binary" in graph
+    assert "op = #lattice.binary_op<sub>" in graph
+    assert "join = #lattice.join<left>" in graph
+    assert "lhs_fill = 0.0 : f32" in graph
+    assert "rhs_fill = 1.5 : f32" in graph
+
+
+def test_export_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
+    model = MulSparseModel().eval()
+
+    report = export_lattice_artifact(
+        model,
+        tmp_path / "mul.lattice",
+        options=LatticeExportOptions(batch_size=2),
+    )
+    graph = report.graph_path.read_text(encoding="utf-8")
+
+    assert "lattice.sparse.binary" in graph
+    assert "op = #lattice.binary_op<mul>" in graph
+    assert "join = #lattice.join<inner>" in graph
 
 
 @pytest.mark.parametrize(
