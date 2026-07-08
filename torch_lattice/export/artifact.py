@@ -49,6 +49,7 @@ class LatticeExportOptions:
     quantize_bits: int | None = None
     quantize_group_size: int = 32
     quantize_scale_dtype: str = "f16"
+    input_stride: tuple[int, int, int] = (1, 1, 1)
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ def export_lattice_artifact(
         quantize_bits=options.quantize_bits,
         quantize_group_size=options.quantize_group_size,
         quantize_scale_dtype=options.quantize_scale_dtype,
+        input_stride=options.input_stride,
     )
     lower_fx_module(export_builder, model)
     return export_builder.save(
@@ -144,9 +146,11 @@ def _options_with_sample_defaults(
         dtype = _torch_dtype_name(sample_input.feats.dtype)
     if batch_size is None:
         batch_size = _batch_size_from_sample(sample_input)
+    input_stride = tuple(int(value) for value in sample_input.stride)
     return LatticeExportOptions(
         input_dtype=dtype,
         batch_size=batch_size,
+        input_stride=input_stride,
         clean=options.clean,
         validate=options.validate,
         quantize_bits=options.quantize_bits,

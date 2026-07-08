@@ -53,6 +53,7 @@ class TorchLatticeExportBuilder:
         quantize_group_size: int = 32,
         quantize_scale_dtype: str = "f16",
         create_default_input: bool = True,
+        input_stride=(1, 1, 1),
     ) -> None:
         if quantize_bits is not None and quantize_bits not in (4, 8):
             raise ValueError("quantize_bits must be None, 4, or 8.")
@@ -63,6 +64,7 @@ class TorchLatticeExportBuilder:
         self.quantize_bits = quantize_bits
         self.quantize_group_size = int(quantize_group_size)
         self.quantize_scale_dtype = quantize_scale_dtype
+        self.input_stride = _triple(input_stride)
         self._builder = MLIRModuleBuilder()
         self._weights: dict[str, torch.Tensor] = {}
         self._value = self.sparse_input() if create_default_input else None
@@ -99,7 +101,7 @@ class TorchLatticeExportBuilder:
             coords=coords,
             features=features,
             active=active,
-            stride=(1, 1, 1),
+            stride=self.input_stride,
             coord_order="batch_x_y_z",
             result_type=sparse_type,
             result=self.input_name,

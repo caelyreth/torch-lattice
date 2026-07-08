@@ -50,6 +50,7 @@ class SparseTensor:
             self._caches = _caches
         else:
             self._caches = TensorCache()
+        self._caches.cmaps.setdefault(self.stride, (self.coords, self.spatial_range))
 
     @property
     def F(self) -> torch.Tensor:
