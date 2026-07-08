@@ -27,6 +27,27 @@ class TinySparseModel(nn.Module):
         return self.head(self.pool(self.act(self.stem(x))))
 
 
+class SkipAddSparseModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.left = spnn.Conv3d(2, 2, kernel_size=1)
+        self.right = spnn.Conv3d(2, 2, kernel_size=1)
+        self.act = spnn.ReLU()
+
+    def forward(self, x):
+        return self.act(self.left(x) + self.right(x))
+
+
+class CatSparseModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.left = spnn.Conv3d(2, 3, kernel_size=1)
+        self.right = spnn.Conv3d(2, 4, kernel_size=1)
+
+    def forward(self, x):
+        return torch_lattice.cat([self.left(x), self.right(x)])
+
+
 def test_export_fx_tiny_sparse_pool_linear_artifact(tmp_path):
     torch.manual_seed(0)
     model = TinySparseModel().eval()
@@ -59,6 +80,39 @@ def test_export_fx_tiny_sparse_pool_linear_artifact(tmp_path):
     assert weights["stem.bias"].shape == (3,)
     assert weights["head.weight"].shape == (2, 3)
     assert weights["head.bias"].shape == (2,)
+
+
+def test_export_fx_branch_add_artifact(tmp_path):
+    model = SkipAddSparseModel().eval()
+
+    report = export_lattice_artifact(
+        model,
+        tmp_path / "skip_add.lattice",
+        options=LatticeExportOptions(batch_size=2),
+    )
+    graph = report.graph_path.read_text(encoding="utf-8")
+
+    assert "lattice.sparse.binary" in graph
+    assert "op = #lattice.binary_op<add>" in graph
+    assert "join = #lattice.join<outer>" in graph
+    assert "lattice.activation" in graph
+
+
+def test_export_fx_branch_cat_artifact(tmp_path):
+    model = CatSparseModel().eval()
+
+    report = export_lattice_artifact(
+        model,
+        tmp_path / "cat.lattice",
+        options=LatticeExportOptions(batch_size=2),
+    )
+    graph = report.graph_path.read_text(encoding="utf-8")
+    weights = load_file(report.weights_path)
+
+    assert "lattice.sparse.cat" in graph
+    assert "join = #lattice.join<inner>" in graph
+    assert weights["left.weight"].shape == (3, 1, 1, 1, 2)
+    assert weights["right.weight"].shape == (4, 1, 1, 1, 2)
 
 
 def test_export_conv3d_weight_layout(tmp_path):
