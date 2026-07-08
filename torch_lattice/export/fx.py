@@ -37,6 +37,7 @@ SUPPORTED_LEAF_MODULES = (
     spnn.Tanh,
     spnn.Softplus,
     spnn.Pool3d,
+    spnn.SparseCrop,
     spnn.GlobalAvgPool,
     spnn.GlobalMaxPool,
     nn.Linear,

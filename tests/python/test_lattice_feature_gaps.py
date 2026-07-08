@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from torch import nn
 from safetensors.torch import load_file
@@ -206,3 +207,12 @@ def test_export_dense_head_activations_and_norms_mlir():
     assert "lattice.layer_norm" in graph
     assert graph.count(" = lattice.activation ") == 4
     assert "lattice.linear" in graph
+
+
+def test_export_sparse_crop_reports_missing_dialect_op(tmp_path):
+    model = nn.Sequential(
+        spnn.Conv3d(2, 2, kernel_size=1),
+        spnn.SparseCrop(coords_min=(0, 0, 0), coords_max=(2, 2, 2)),
+    ).eval()
+    with pytest.raises(ValueError, match="sparse crop op"):
+        export_lattice_artifact(model, tmp_path)

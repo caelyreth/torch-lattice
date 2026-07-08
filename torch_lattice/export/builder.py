@@ -200,6 +200,8 @@ class TorchLatticeExportBuilder:
             return self.activation(name, input=input, **activation)
         if isinstance(module, spnn.Pool3d):
             return self.pool3d(name, module, input)
+        if isinstance(module, spnn.SparseCrop):
+            raise ValueError("SparseCrop export is not supported until the lattice dialect defines a sparse crop op.")
         if isinstance(module, spnn.GlobalAvgPool):
             return self.global_pool(name, "avg", input)
         if isinstance(module, spnn.GlobalMaxPool):
