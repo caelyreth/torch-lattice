@@ -13,11 +13,11 @@ from torch import nn
 import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
-from torch_lattice.export import (
-    LatticeExportOptions,
-    TorchLatticeExportBuilder,
-    export_lattice_artifact,
-    lower_fx_module,
+from torch_lattice.artifact import (
+    LatticeArtifactOptions,
+    TorchLatticeArtifactBuilder,
+    save_lattice_artifact,
+    lower_fx_artifact,
 )
 from torch_lattice.nn.functional.conv import Dataflow, conv_config
 
@@ -181,11 +181,11 @@ def _sparse_classifier(case_dir: Path) -> None:
         optimizer.step()
     model.eval()
     expected = model(x).detach()
-    export_lattice_artifact(
+    save_lattice_artifact(
         model,
         case_dir,
         sample_input=x,
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     _save_sparse_inputs(case_dir, '', x)
     save_file({'output': expected}, case_dir / 'expected.safetensors')
@@ -212,11 +212,11 @@ def _quantized_classifier(case_dir: Path, *, bits: int) -> None:
         )
         model.head.bias.copy_(torch.tensor([0.01, -0.02]))
     expected = model(x).detach()
-    export_lattice_artifact(
+    save_lattice_artifact(
         model,
         case_dir,
         sample_input=x,
-        options=LatticeExportOptions(
+        options=LatticeArtifactOptions(
             batch_size=2,
             quantize_bits=bits,
             quantize_group_size=32,
@@ -255,9 +255,9 @@ def _target_branch(case_dir: Path) -> None:
         optimizer.step()
     model.eval()
     expected = model(x, target)
-    builder = TorchLatticeExportBuilder(input_dtype='f32')
+    builder = TorchLatticeArtifactBuilder(input_dtype='f32')
     target_value = builder.sparse_argument('target', channels=1)
-    lower_fx_module(builder, model, inputs=(builder.current, target_value))
+    lower_fx_artifact(builder, model, inputs=(builder.current, target_value))
     builder.save(case_dir)
     _save_sparse_inputs(case_dir, '', x, extra={'target': target})
     _save_sparse_expected(case_dir, expected)
@@ -283,12 +283,12 @@ def _point_voxel(case_dir: Path) -> None:
     batch_indices = torch.zeros((5,), dtype=torch.int32)
     active_rows = torch.tensor([5], dtype=torch.int32)
     expected = model(points, features, batch_indices, active_rows).detach()
-    builder = TorchLatticeExportBuilder(input_dtype='f32', create_default_input=False)
+    builder = TorchLatticeArtifactBuilder(input_dtype='f32', create_default_input=False)
     points_value = builder.dense_argument('points', 'tensor<?x3xf32>')
     features_value = builder.dense_argument('features', 'tensor<?x2xf32>', channels=2)
     batch_value = builder.dense_argument('batch_indices', 'tensor<?xi32>')
     active_value = builder.dense_argument('active_rows', 'tensor<1xi32>')
-    lower_fx_module(
+    lower_fx_artifact(
         builder,
         model,
         inputs=(points_value, features_value, batch_value, active_value),
@@ -313,7 +313,7 @@ def _transpose_convolution(case_dir: Path) -> None:
     model, x_eval = _cuda_eval_pair(model, x)
     with _conv_dataflow(Dataflow.GatherScatter):
         expected = model(x_eval).cpu()
-        export_lattice_artifact(model, case_dir, sample_input=x)
+        save_lattice_artifact(model, case_dir, sample_input=x)
     _save_sparse_inputs(case_dir, '', x)
     _save_sparse_expected(case_dir, expected)
 
@@ -328,7 +328,7 @@ def _generative_transpose_convolution(case_dir: Path) -> None:
         stride=(2, 1, 1),
     )
     expected = _generative_transpose_reference(model, x)
-    export_lattice_artifact(model, case_dir, sample_input=x)
+    save_lattice_artifact(model, case_dir, sample_input=x)
     _save_sparse_inputs(case_dir, '', x)
     _save_sparse_expected(case_dir, expected)
 

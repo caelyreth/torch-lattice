@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -21,7 +22,7 @@ try:
     )
 except ImportError as exc:  # pragma: no cover - import-time environment guard
     raise ImportError(
-        "torch_lattice.export requires the MLIR artifact API from "
+        "torch_lattice.artifact requires the MLIR artifact API from "
         "lattice-contract; install a lattice-contract build that exports "
         "MLIRModuleBuilder, TensorType, SparseTensorType, WeightType, and "
         "DIALECT_SCHEMA_DIGEST."
@@ -31,15 +32,62 @@ ValueKind = Literal["sparse_tensor", "dense_tensor"]
 
 
 @dataclass(frozen=True)
-class ExportValue:
-    """A value in the Torch-to-lattice export graph."""
+class ModuleLowering:
+    types: tuple[type[nn.Module], ...]
+    fn: Callable[..., "ArtifactValue"]
+    arity: int
+
+    def matches(self, module: nn.Module) -> bool:
+        return isinstance(module, self.types)
+
+    def lower(
+        self,
+        builder: "TorchLatticeArtifactBuilder",
+        name: str,
+        module: nn.Module,
+        inputs: tuple["ArtifactValue", ...],
+    ) -> "ArtifactValue":
+        if len(inputs) != self.arity:
+            raise ValueError(
+                f"{type(module).__name__} artifact expects {self.arity} "
+                f"symbolic lattice value{'s' if self.arity != 1 else ''}."
+            )
+        return self.fn(builder, name, module, *inputs)
+
+
+_MODULE_LOWERINGS: list[ModuleLowering] = []
+
+
+def module_lowering(
+    *types: type[nn.Module],
+    arity: int = 1,
+) -> Callable[[Callable[..., ArtifactValue]], Callable[..., ArtifactValue]]:
+    """Register a Torch module lowering method."""
+
+    def decorator(
+        fn: Callable[..., ArtifactValue],
+    ) -> Callable[..., ArtifactValue]:
+        _MODULE_LOWERINGS.append(ModuleLowering(types, fn, arity))
+        return fn
+
+    return decorator
+
+
+_RMS_NORM_TYPES = (spnn.RMSNorm,) + (
+    (nn.RMSNorm,) if hasattr(nn, "RMSNorm") else ()
+)
+
+
+@dataclass(frozen=True)
+class ArtifactValue:
+    """A value in the Torch-to-lattice artifact graph."""
 
     value: object
     kind: ValueKind
     channels: int | None
 
 
-class TorchLatticeExportBuilder:
+class TorchLatticeArtifactBuilder:
     """Explicit builder for Torch-to-lattice MLIR artifacts."""
 
     def __init__(
@@ -71,7 +119,7 @@ class TorchLatticeExportBuilder:
         self._finalized = False
 
     @property
-    def current(self) -> ExportValue:
+    def current(self) -> ArtifactValue:
         if self._value is None:
             raise ValueError("builder has no current value; pass explicit inputs or create a default sparse input.")
         return self._value
@@ -80,7 +128,7 @@ class TorchLatticeExportBuilder:
     def weights(self) -> dict[str, torch.Tensor]:
         return dict(self._weights)
 
-    def sparse_input(self) -> ExportValue:
+    def sparse_input(self) -> ArtifactValue:
         coords = self._builder.argument(
             "coords",
             TensorType("tensor<?x4xi32>"),
@@ -106,7 +154,7 @@ class TorchLatticeExportBuilder:
             result_type=sparse_type,
             result=self.input_name,
         )
-        return ExportValue(value=value, kind="sparse_tensor", channels=None)
+        return ArtifactValue(value=value, kind="sparse_tensor", channels=None)
 
     def sparse_argument(
         self,
@@ -115,7 +163,7 @@ class TorchLatticeExportBuilder:
         dtype: str | None = None,
         channels: int | None = None,
         stride=(1, 1, 1),
-    ) -> ExportValue:
+    ) -> ArtifactValue:
         safe = _safe_value_name(name)
         dtype = dtype or self.input_dtype
         coords = self._builder.argument(
@@ -147,7 +195,7 @@ class TorchLatticeExportBuilder:
             result_type=sparse_type,
             result=safe,
         )
-        return ExportValue(value=value, kind="sparse_tensor", channels=channels)
+        return ArtifactValue(value=value, kind="sparse_tensor", channels=channels)
 
     def dense_argument(
         self,
@@ -155,11 +203,11 @@ class TorchLatticeExportBuilder:
         type: str | TensorType,
         *,
         channels: int | None = None,
-    ) -> ExportValue:
+    ) -> ArtifactValue:
         value = self._builder.argument(name, type if isinstance(type, TensorType) else TensorType(type))
-        return ExportValue(value=value, kind="dense_tensor", channels=channels)
+        return ArtifactValue(value=value, kind="dense_tensor", channels=channels)
 
-    def module(self, name: str, module: nn.Module) -> ExportValue:
+    def module(self, name: str, module: nn.Module) -> ArtifactValue:
         value = self.lower_module(name, module, self._value)
         self._value = value
         return value
@@ -168,66 +216,19 @@ class TorchLatticeExportBuilder:
         self,
         name: str,
         module: nn.Module,
-        *inputs: ExportValue,
-    ) -> ExportValue:
-        if isinstance(module, spnn.TargetConv3d):
-            if len(inputs) != 2:
-                raise ValueError("TargetConv3d export expects input and target sparse tensors.")
-            return self.target_conv3d(name, module, inputs[0], inputs[1])
-        if len(inputs) != 1:
-            raise ValueError(f"module {name} must consume exactly one symbolic lattice value.")
-        input = inputs[0]
-        if isinstance(
-            module,
-            (
-                spnn.Conv3d,
-                spnn.SubmConv3d,
-                spnn.ConvTranspose3d,
-                spnn.GenerativeConvTranspose3d,
-            ),
-        ):
-            return self.conv3d(name, module, input)
-        if isinstance(module, spnn.BatchNorm):
-            return self.batch_norm(name, module, input)
-        if isinstance(module, (spnn.LayerNorm, nn.LayerNorm)):
-            return self.layer_norm(name, module, input)
-        if _is_rms_norm(module):
-            return self.rms_norm(name, module, input)
-        if isinstance(module, spnn.InstanceNorm):
-            raise ValueError("InstanceNorm export is not supported without a dedicated lattice normalization op.")
-        if isinstance(module, spnn.GroupNorm):
-            raise ValueError("GroupNorm export is not supported without a dedicated lattice normalization op.")
-        activation = _activation_spec(module)
-        if activation is not None:
-            return self.activation(name, input=input, **activation)
-        if isinstance(module, spnn.Pool3d):
-            return self.pool3d(name, module, input)
-        if isinstance(module, spnn.SparseCrop):
-            raise ValueError("SparseCrop export is not supported until the lattice dialect defines a sparse crop op.")
-        if isinstance(module, spnn.GlobalAvgPool):
-            return self.global_pool(name, "avg", input)
-        if isinstance(module, spnn.GlobalMaxPool):
-            return self.global_pool(name, "max", input)
-        if isinstance(module, nn.Linear):
-            return self.linear(name, module, input)
-        if isinstance(module, nn.Dropout):
-            if module.training:
-                raise ValueError("Dropout export is only supported in eval mode.")
-            return input
-        if isinstance(module, nn.Flatten):
-            if input.kind != "dense_tensor" or module.start_dim != 1 or module.end_dim != -1:
-                raise ValueError("Flatten export only supports dense classifier heads with start_dim=1 and end_dim=-1.")
-            return input
-        if isinstance(module, nn.Identity):
-            return input
-        raise ValueError(f"unsupported module for lattice export: {type(module).__name__}")
+        *inputs: ArtifactValue,
+    ) -> ArtifactValue:
+        for lowering in _MODULE_LOWERINGS:
+            if lowering.matches(module):
+                return lowering.lower(self, name, module, inputs)
+        raise ValueError(f"unsupported module for lattice artifact: {type(module).__name__}")
 
-    def conv3d(
+    def _conv_args(
         self,
         name: str,
         module: spnn.Conv3d,
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue,
+    ):
         value = self._current_or(input)
         self._require_sparse(value, module)
         sparse_type = SparseTensorType(dtype=self._dtype_for_module(module))
@@ -242,7 +243,7 @@ class TorchLatticeExportBuilder:
         if module.bias is not None:
             bias = self._weight(name, "bias", module.bias.detach(), family="bias", layout="bias_c")
 
-        kwargs = {
+        return {
             "input": value.value,
             "weight": weight,
             "bias": bias,
@@ -250,35 +251,71 @@ class TorchLatticeExportBuilder:
             "result_type": sparse_type,
             "result": _safe_value_name(name),
         }
-        if isinstance(module, spnn.GenerativeConvTranspose3d):
-            out = self._builder.generative_conv_transpose3d(**kwargs, stride=_triple(module.stride))
-        elif isinstance(module, spnn.ConvTranspose3d):
-            out = self._builder.conv_transpose3d(
-                **kwargs,
-                stride=_triple(module.stride),
-                padding=_triple(module.padding),
-                dilation=_triple(module.dilation),
-            )
-        elif isinstance(module, spnn.SubmConv3d):
-            out = self._builder.subm_conv3d(**kwargs, dilation=_triple(module.dilation))
-        elif isinstance(module, spnn.Conv3d):
-            out = self._builder.conv3d(
-                **kwargs,
-                stride=_triple(module.stride),
-                padding=_triple(module.padding),
-                dilation=_triple(module.dilation),
-            )
-        else:  # pragma: no cover - protected by lower_module dispatch.
-            raise TypeError(f"unsupported convolution module: {type(module).__name__}")
-        return ExportValue(out, "sparse_tensor", module.out_channels)
 
+    @module_lowering(spnn.Conv3d)
+    def conv3d(
+        self,
+        name: str,
+        module: spnn.Conv3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        out = self._builder.conv3d(
+            **self._conv_args(name, module, input),
+            stride=_triple(module.stride),
+            padding=_triple(module.padding),
+            dilation=_triple(module.dilation),
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
+    @module_lowering(spnn.SubmConv3d)
+    def subm_conv3d(
+        self,
+        name: str,
+        module: spnn.SubmConv3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        out = self._builder.subm_conv3d(
+            **self._conv_args(name, module, input),
+            dilation=_triple(module.dilation),
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
+    @module_lowering(spnn.ConvTranspose3d)
+    def conv_transpose3d(
+        self,
+        name: str,
+        module: spnn.ConvTranspose3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        out = self._builder.conv_transpose3d(
+            **self._conv_args(name, module, input),
+            stride=_triple(module.stride),
+            padding=_triple(module.padding),
+            dilation=_triple(module.dilation),
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
+    @module_lowering(spnn.GenerativeConvTranspose3d)
+    def generative_conv_transpose3d(
+        self,
+        name: str,
+        module: spnn.GenerativeConvTranspose3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        out = self._builder.generative_conv_transpose3d(
+            **self._conv_args(name, module, input),
+            stride=_triple(module.stride),
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
+    @module_lowering(spnn.TargetConv3d, arity=2)
     def target_conv3d(
         self,
         name: str,
         module: spnn.TargetConv3d,
-        input: ExportValue,
-        target: ExportValue,
-    ) -> ExportValue:
+        input: ArtifactValue,
+        target: ArtifactValue,
+    ) -> ArtifactValue:
         self._require_sparse(input, module)
         self._require_sparse(target, module)
         weight = self._weight(
@@ -303,14 +340,15 @@ class TorchLatticeExportBuilder:
             result_type=SparseTensorType(dtype=self._dtype_for_module(module)),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "sparse_tensor", module.out_channels)
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
+    @module_lowering(spnn.Pool3d)
     def pool3d(
         self,
         name: str,
         module: spnn.Pool3d,
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue | None = None,
+    ) -> ArtifactValue:
         value = self._current_or(input)
         self._require_sparse(value, module)
         out = self._builder.pool3d(
@@ -323,21 +361,21 @@ class TorchLatticeExportBuilder:
             result_type=SparseTensorType(dtype=self.input_dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "sparse_tensor", value.channels)
+        return ArtifactValue(out, "sparse_tensor", value.channels)
 
     def voxelize(
         self,
         name: str,
         *,
-        points: ExportValue,
-        features: ExportValue,
-        batch_indices: ExportValue,
-        active_rows: ExportValue,
+        points: ArtifactValue,
+        features: ArtifactValue,
+        batch_indices: ArtifactValue,
+        active_rows: ArtifactValue,
         voxel_size,
         origin=0.0,
         reduction: Literal["sum", "mean"] = "mean",
         stride=1,
-    ) -> ExportValue:
+    ) -> ArtifactValue:
         for label, value in {
             "points": points,
             "features": features,
@@ -357,20 +395,20 @@ class TorchLatticeExportBuilder:
             result_type=SparseTensorType(dtype=self.input_dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "sparse_tensor", features.channels)
+        return ArtifactValue(out, "sparse_tensor", features.channels)
 
     def devoxelize(
         self,
         name: str,
         *,
-        points: ExportValue,
-        voxels: ExportValue,
-        batch_indices: ExportValue,
-        point_active_rows: ExportValue,
+        points: ArtifactValue,
+        voxels: ArtifactValue,
+        batch_indices: ArtifactValue,
+        point_active_rows: ArtifactValue,
         voxel_size,
         origin=0.0,
         interpolation: Literal["nearest", "linear"] = "nearest",
-    ) -> ExportValue:
+    ) -> ArtifactValue:
         self._require_dense_name(points, "points")
         self._require_sparse_name(voxels, "voxels")
         self._require_dense_name(batch_indices, "batch_indices")
@@ -386,14 +424,15 @@ class TorchLatticeExportBuilder:
             result_type=_feature_type(voxels.channels, self.input_dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "dense_tensor", voxels.channels)
+        return ArtifactValue(out, "dense_tensor", voxels.channels)
 
+    @module_lowering(spnn.BatchNorm)
     def batch_norm(
         self,
         name: str,
         module: spnn.BatchNorm,
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue | None = None,
+    ) -> ArtifactValue:
         value = self._current_or(input)
         self._require_sparse(value, module)
         sparse, features = self._sparse_features(name, value)
@@ -407,7 +446,7 @@ class TorchLatticeExportBuilder:
         if bias is None:
             bias = self._constant_channel_weight(name, "bias", torch.zeros(module.num_features), family="bias", layout="bias_c", dtype=dtype)
         if mean is None or var is None:
-            raise ValueError("BatchNorm export requires frozen running_mean and running_var.")
+            raise ValueError("BatchNorm artifact requires frozen running_mean and running_var.")
         out_features = self._builder.batch_norm(
             input=features,
             scale=scale,
@@ -424,14 +463,15 @@ class TorchLatticeExportBuilder:
             result_type=SparseTensorType(dtype=dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "sparse_tensor", module.num_features)
+        return ArtifactValue(out, "sparse_tensor", module.num_features)
 
+    @module_lowering(spnn.LayerNorm, nn.LayerNorm)
     def layer_norm(
         self,
         name: str,
         module: nn.LayerNorm,
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue | None = None,
+    ) -> ArtifactValue:
         value = self._current_or(input)
         sparse, features, output_kind = self._feature_input(name, value)
         channels = _single_normalized_dim(module.normalized_shape, "LayerNorm")
@@ -452,12 +492,13 @@ class TorchLatticeExportBuilder:
         )
         return self._feature_output(name, sparse, out_features, output_kind, channels, dtype)
 
+    @module_lowering(*_RMS_NORM_TYPES)
     def rms_norm(
         self,
         name: str,
         module: nn.Module,
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue | None = None,
+    ) -> ArtifactValue:
         value = self._current_or(input)
         sparse, features, output_kind = self._feature_input(name, value)
         channels = _single_normalized_dim(module.normalized_shape, "RMSNorm")
@@ -474,17 +515,100 @@ class TorchLatticeExportBuilder:
         )
         return self._feature_output(name, sparse, out_features, output_kind, channels, dtype)
 
+    @module_lowering(spnn.ReLU, nn.ReLU)
+    def relu(
+        self,
+        name: str,
+        module: nn.Module,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del module
+        return self.activation(name, "relu", input=input)
+
+    @module_lowering(spnn.LeakyReLU, nn.LeakyReLU)
+    def leaky_relu(
+        self,
+        name: str,
+        module: spnn.LeakyReLU | nn.LeakyReLU,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        return self.activation(
+            name,
+            "leaky_relu",
+            input=input,
+            alpha=float(module.negative_slope),
+        )
+
+    @module_lowering(spnn.SiLU, nn.SiLU)
+    def silu(
+        self,
+        name: str,
+        module: nn.Module,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del module
+        return self.activation(name, "silu", input=input)
+
+    @module_lowering(spnn.GELU, nn.GELU)
+    def gelu(
+        self,
+        name: str,
+        module: spnn.GELU | nn.GELU,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        return self.activation(
+            name,
+            "gelu",
+            input=input,
+            approximate=str(module.approximate or "none"),
+        )
+
+    @module_lowering(spnn.Sigmoid, nn.Sigmoid)
+    def sigmoid(
+        self,
+        name: str,
+        module: nn.Module,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del module
+        return self.activation(name, "sigmoid", input=input)
+
+    @module_lowering(spnn.Tanh, nn.Tanh)
+    def tanh(
+        self,
+        name: str,
+        module: nn.Module,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del module
+        return self.activation(name, "tanh", input=input)
+
+    @module_lowering(spnn.Softplus, nn.Softplus)
+    def softplus(
+        self,
+        name: str,
+        module: spnn.Softplus | nn.Softplus,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        return self.activation(
+            name,
+            "softplus",
+            input=input,
+            beta=float(module.beta),
+            threshold=float(module.threshold),
+        )
+
     def activation(
         self,
         name: str,
         kind: str,
         *,
-        input: ExportValue | None = None,
+        input: ArtifactValue | None = None,
         approximate: str = "none",
         alpha: float = 0.01,
         beta: float = 1.0,
         threshold: float = 20.0,
-    ) -> ExportValue:
+    ) -> ArtifactValue:
         value = self._current_or(input)
         if value.kind == "sparse_tensor":
             sparse, features = self._sparse_features(name, value)
@@ -504,7 +628,7 @@ class TorchLatticeExportBuilder:
                 result_type=SparseTensorType(dtype=self.input_dtype),
                 result=_safe_value_name(name),
             )
-            return ExportValue(out, "sparse_tensor", value.channels)
+            return ArtifactValue(out, "sparse_tensor", value.channels)
         out = self._activation_features(
             name,
             value.value,
@@ -515,18 +639,38 @@ class TorchLatticeExportBuilder:
             beta=beta,
             threshold=threshold,
         )
-        return ExportValue(out, "dense_tensor", value.channels)
+        return ArtifactValue(out, "dense_tensor", value.channels)
+
+    @module_lowering(spnn.GlobalAvgPool)
+    def global_avg_pool(
+        self,
+        name: str,
+        module: spnn.GlobalAvgPool,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del module
+        return self.global_pool(name, "avg", input)
+
+    @module_lowering(spnn.GlobalMaxPool)
+    def global_max_pool(
+        self,
+        name: str,
+        module: spnn.GlobalMaxPool,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del module
+        return self.global_pool(name, "max", input)
 
     def global_pool(
         self,
         name: str,
         mode: Literal["avg", "max"],
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue | None = None,
+    ) -> ArtifactValue:
         value = self._current_or(input)
         self._require_sparse_name(value, "GlobalPool")
         if self.batch_size is None:
-            raise ValueError("global_pool export requires a static batch_size.")
+            raise ValueError("global_pool artifact requires a static batch_size.")
         channels = value.channels
         out = self._builder.global_pool(
             input=value.value,
@@ -535,14 +679,15 @@ class TorchLatticeExportBuilder:
             result_type=_feature_type(channels, self.input_dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "dense_tensor", channels)
+        return ArtifactValue(out, "dense_tensor", channels)
 
+    @module_lowering(nn.Linear)
     def linear(
         self,
         name: str,
         module: nn.Linear,
-        input: ExportValue | None = None,
-    ) -> ExportValue:
+        input: ArtifactValue | None = None,
+    ) -> ArtifactValue:
         value = self._current_or(input)
         self._require_dense(value, module)
         dtype = _torch_dtype_name(module.weight.dtype)
@@ -557,19 +702,99 @@ class TorchLatticeExportBuilder:
             result_type=_feature_type(module.out_features, dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "dense_tensor", module.out_features)
+        return ArtifactValue(out, "dense_tensor", module.out_features)
+
+    @module_lowering(nn.Dropout)
+    def dropout(
+        self,
+        name: str,
+        module: nn.Dropout,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del name
+        if module.training:
+            raise ValueError("Dropout artifact is only supported in eval mode.")
+        return input
+
+    @module_lowering(nn.Flatten)
+    def flatten(
+        self,
+        name: str,
+        module: nn.Flatten,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del name
+        if (
+            input.kind != "dense_tensor"
+            or module.start_dim != 1
+            or module.end_dim != -1
+        ):
+            raise ValueError(
+                "Flatten artifact only supports dense classifier heads with "
+                "start_dim=1 and end_dim=-1."
+            )
+        return input
+
+    @module_lowering(nn.Identity)
+    def identity(
+        self,
+        name: str,
+        module: nn.Identity,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del name, module
+        return input
+
+    @module_lowering(spnn.InstanceNorm)
+    def instance_norm(
+        self,
+        name: str,
+        module: spnn.InstanceNorm,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del self, name, module, input
+        raise ValueError(
+            "InstanceNorm artifact is not supported without a dedicated "
+            "lattice normalization op."
+        )
+
+    @module_lowering(spnn.GroupNorm)
+    def group_norm(
+        self,
+        name: str,
+        module: spnn.GroupNorm,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del self, name, module, input
+        raise ValueError(
+            "GroupNorm artifact is not supported without a dedicated lattice "
+            "normalization op."
+        )
+
+    @module_lowering(spnn.SparseCrop)
+    def sparse_crop(
+        self,
+        name: str,
+        module: spnn.SparseCrop,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        del self, name, module, input
+        raise ValueError(
+            "SparseCrop artifact is not supported until the lattice dialect "
+            "defines a sparse crop op."
+        )
 
     def sparse_binary(
         self,
         name: str,
-        lhs: ExportValue,
-        rhs: ExportValue,
+        lhs: ArtifactValue,
+        rhs: ArtifactValue,
         op: str,
         *,
         join: str = "outer",
         lhs_fill: float = 0.0,
         rhs_fill: float = 0.0,
-    ) -> ExportValue:
+    ) -> ArtifactValue:
         self._require_sparse_name(lhs, f"sparse {op} lhs")
         self._require_sparse_name(rhs, f"sparse {op} rhs")
         if lhs.channels is not None and rhs.channels is not None and lhs.channels != rhs.channels:
@@ -584,12 +809,12 @@ class TorchLatticeExportBuilder:
             result_type=SparseTensorType(dtype=self.input_dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "sparse_tensor", lhs.channels or rhs.channels)
+        return ArtifactValue(out, "sparse_tensor", lhs.channels or rhs.channels)
 
-    def sparse_add(self, name: str, lhs: ExportValue, rhs: ExportValue, *, join: str = "outer", lhs_fill: float = 0.0, rhs_fill: float = 0.0) -> ExportValue:
+    def sparse_add(self, name: str, lhs: ArtifactValue, rhs: ArtifactValue, *, join: str = "outer", lhs_fill: float = 0.0, rhs_fill: float = 0.0) -> ArtifactValue:
         return self.sparse_binary(name, lhs, rhs, "add", join=join, lhs_fill=lhs_fill, rhs_fill=rhs_fill)
 
-    def sparse_cat(self, name: str, lhs: ExportValue, rhs: ExportValue, *, join: str = "inner") -> ExportValue:
+    def sparse_cat(self, name: str, lhs: ArtifactValue, rhs: ArtifactValue, *, join: str = "inner") -> ArtifactValue:
         self._require_sparse_name(lhs, "sparse cat lhs")
         self._require_sparse_name(rhs, "sparse cat rhs")
         channels = None
@@ -602,9 +827,9 @@ class TorchLatticeExportBuilder:
             result_type=SparseTensorType(dtype=self.input_dtype),
             result=_safe_value_name(name),
         )
-        return ExportValue(out, "sparse_tensor", channels)
+        return ArtifactValue(out, "sparse_tensor", channels)
 
-    def output(self, value: ExportValue | None = None, *, name: str | None = None) -> None:
+    def output(self, value: ArtifactValue | None = None, *, name: str | None = None) -> None:
         value = value or self.current
         role = "sparse_tensor" if value.kind == "sparse_tensor" else "tensor"
         self._builder.return_(value.value, names=(name or self.output_name,), roles=(role,))
@@ -617,23 +842,23 @@ class TorchLatticeExportBuilder:
 
     def save(self, artifact_dir: str | Path, *, clean: bool = True, validate: bool = True):
         del validate
-        from .artifact import _save_artifact
+        from .io import _save_artifact
 
         return _save_artifact(artifact_dir, self.to_mlir(), self._weights, clean=clean)
 
-    def _current_or(self, value: ExportValue | None) -> ExportValue:
+    def _current_or(self, value: ArtifactValue | None) -> ArtifactValue:
         if value is not None:
             return value
         return self.current
 
-    def _feature_input(self, name: str, value: ExportValue):
+    def _feature_input(self, name: str, value: ArtifactValue):
         if value.kind == "sparse_tensor":
             sparse, features = self._sparse_features(name, value)
             return sparse, features, "sparse_tensor"
         self._require_dense_name(value, name)
         return None, value.value, "dense_tensor"
 
-    def _feature_output(self, name: str, sparse, features, kind: str, channels: int | None, dtype: str) -> ExportValue:
+    def _feature_output(self, name: str, sparse, features, kind: str, channels: int | None, dtype: str) -> ArtifactValue:
         if kind == "sparse_tensor":
             out = self._builder.sparse_with_features(
                 input=sparse,
@@ -641,10 +866,10 @@ class TorchLatticeExportBuilder:
                 result_type=SparseTensorType(dtype=dtype),
                 result=_safe_value_name(name),
             )
-            return ExportValue(out, "sparse_tensor", channels)
-        return ExportValue(features, "dense_tensor", channels)
+            return ArtifactValue(out, "sparse_tensor", channels)
+        return ArtifactValue(features, "dense_tensor", channels)
 
-    def _sparse_features(self, name: str, value: ExportValue):
+    def _sparse_features(self, name: str, value: ArtifactValue):
         self._require_sparse_name(value, name)
         channels = value.channels
         coords, features, active = self._builder.sparse_decompose(
@@ -664,7 +889,7 @@ class TorchLatticeExportBuilder:
         self,
         name: str,
         features,
-        value: ExportValue,
+        value: ArtifactValue,
         kind: str,
         *,
         approximate: str,
@@ -726,17 +951,17 @@ class TorchLatticeExportBuilder:
         torch_dtype = torch.float16 if dtype == "f16" else torch.float32
         return self._weight(module_name, parameter_name, tensor.to(dtype=torch_dtype), family=family, layout=layout)
 
-    def _require_sparse(self, value: ExportValue, module: nn.Module) -> None:
+    def _require_sparse(self, value: ArtifactValue, module: nn.Module) -> None:
         self._require_sparse_name(value, type(module).__name__)
 
-    def _require_sparse_name(self, value: ExportValue, name: str) -> None:
+    def _require_sparse_name(self, value: ArtifactValue, name: str) -> None:
         if value.kind != "sparse_tensor":
             raise ValueError(f"{name} expects sparse_tensor, got {value.kind}.")
 
-    def _require_dense(self, value: ExportValue, module: nn.Module) -> None:
+    def _require_dense(self, value: ArtifactValue, module: nn.Module) -> None:
         self._require_dense_name(value, type(module).__name__)
 
-    def _require_dense_name(self, value: ExportValue, name: str) -> None:
+    def _require_dense_name(self, value: ArtifactValue, name: str) -> None:
         if value.kind != "dense_tensor":
             raise ValueError(f"{name} expects dense_tensor, got {value.kind}.")
 
@@ -744,6 +969,15 @@ class TorchLatticeExportBuilder:
         for parameter in module.parameters(recurse=False):
             return _torch_dtype_name(parameter.dtype)
         return self.input_dtype
+
+
+SUPPORTED_MODULE_TYPES = tuple(
+    dict.fromkeys(
+        module_type
+        for lowering in _MODULE_LOWERINGS
+        for module_type in lowering.types
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -809,38 +1043,7 @@ def _weight_rows(tensor: torch.Tensor) -> tuple[torch.Tensor, int, int]:
         out_channels, kx, ky, kz, in_channels = tensor.shape
         rows = tensor.permute(1, 2, 3, 0, 4).reshape(kx * ky * kz * out_channels, in_channels)
         return rows, int(kx * ky * kz), int(out_channels)
-    raise ValueError("quantized export supports linear, kernel-major, and 5D convolution weights.")
-
-
-
-
-def _activation_spec(module: nn.Module) -> dict[str, object] | None:
-    specs: tuple[tuple[type[nn.Module], dict[str, object]], ...] = (
-        ((spnn.ReLU, nn.ReLU), {"kind": "relu"}),
-        ((spnn.SiLU, nn.SiLU), {"kind": "silu"}),
-        ((spnn.Sigmoid, nn.Sigmoid), {"kind": "sigmoid"}),
-        ((spnn.Tanh, nn.Tanh), {"kind": "tanh"}),
-        ((spnn.GELU, nn.GELU), {"kind": "gelu"}),
-        ((spnn.Softplus, nn.Softplus), {"kind": "softplus"}),
-    )
-    for types, attrs in specs:
-        if isinstance(module, types):
-            out = dict(attrs)
-            if isinstance(module, (spnn.GELU, nn.GELU)):
-                out["approximate"] = str(module.approximate or "none")
-            if isinstance(module, (spnn.Softplus, nn.Softplus)):
-                out["beta"] = float(module.beta)
-                out["threshold"] = float(module.threshold)
-            return out
-    if isinstance(module, (spnn.LeakyReLU, nn.LeakyReLU)):
-        return {"kind": "leaky_relu", "alpha": float(module.negative_slope)}
-    return None
-
-
-def _is_rms_norm(module: nn.Module) -> bool:
-    return isinstance(module, spnn.RMSNorm) or (
-        hasattr(nn, "RMSNorm") and isinstance(module, nn.RMSNorm)
-    )
+    raise ValueError("quantized artifact supports linear, kernel-major, and 5D convolution weights.")
 
 
 def _single_normalized_dim(value, name: str) -> int:
@@ -848,7 +1051,7 @@ def _single_normalized_dim(value, name: str) -> int:
         return int(value)
     dims = tuple(int(item) for item in value)
     if len(dims) != 1:
-        raise ValueError(f"{name} export expects one normalized feature dimension.")
+        raise ValueError(f"{name} artifact expects one normalized feature dimension.")
     return dims[0]
 
 def _conv_weight_to_mlx(module: spnn.Conv3d) -> torch.Tensor:
@@ -897,7 +1100,7 @@ def _torch_dtype_name(dtype: torch.dtype) -> str:
         return "f16"
     if dtype == torch.float32:
         return "f32"
-    raise ValueError(f"unsupported tensor dtype for lattice export: {dtype}")
+    raise ValueError(f"unsupported tensor dtype for lattice artifact: {dtype}")
 
 
 def _round_up(value: int, multiple: int) -> int:

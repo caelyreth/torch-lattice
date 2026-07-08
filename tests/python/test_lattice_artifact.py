@@ -8,10 +8,10 @@ from torch import nn
 import torch_lattice
 from lattice_contract import DIALECT_SCHEMA_DIGEST
 from torch_lattice import nn as spnn
-from torch_lattice.export import (
-    LatticeExportOptions,
-    TorchLatticeExportBuilder,
-    export_lattice_artifact,
+from torch_lattice.artifact import (
+    LatticeArtifactOptions,
+    TorchLatticeArtifactBuilder,
+    save_lattice_artifact,
 )
 
 
@@ -75,12 +75,12 @@ class CatSparseModel(nn.Module):
         return torch_lattice.cat([self.left(x), self.right(x)])
 
 
-def test_export_fx_tiny_sparse_pool_linear_artifact(tmp_path):
+def test_artifact_fx_tiny_sparse_pool_linear_artifact(tmp_path):
     torch.manual_seed(0)
     model = TinySparseModel().eval()
     sample = _sample_sparse_tensor()
 
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         model,
         tmp_path / "tiny_sparse.lattice",
         sample_input=sample,
@@ -110,13 +110,13 @@ def test_export_fx_tiny_sparse_pool_linear_artifact(tmp_path):
     assert weights["head.bias"].shape == (2,)
 
 
-def test_export_fx_branch_add_artifact(tmp_path):
+def test_artifact_fx_branch_add_artifact(tmp_path):
     model = SkipAddSparseModel().eval()
 
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         model,
         tmp_path / "skip_add.lattice",
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -126,13 +126,13 @@ def test_export_fx_branch_add_artifact(tmp_path):
     assert "lattice.activation" in graph
 
 
-def test_export_fx_branch_cat_artifact(tmp_path):
+def test_artifact_fx_branch_cat_artifact(tmp_path):
     model = CatSparseModel().eval()
 
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         model,
         tmp_path / "cat.lattice",
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
     weights = load_file(report.weights_path)
@@ -145,13 +145,13 @@ def test_export_fx_branch_cat_artifact(tmp_path):
 
 
 
-def test_export_fx_sparse_binary_join_and_fill_artifact(tmp_path):
+def test_artifact_fx_sparse_binary_join_and_fill_artifact(tmp_path):
     model = BinarySparseModel().eval()
 
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         model,
         tmp_path / "binary.lattice",
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -162,13 +162,13 @@ def test_export_fx_sparse_binary_join_and_fill_artifact(tmp_path):
     assert "rhs_fill = 1.5 : f32" in graph
 
 
-def test_export_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
+def test_artifact_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
     model = MulSparseModel().eval()
 
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         model,
         tmp_path / "mul.lattice",
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -189,26 +189,26 @@ def test_export_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
         ),
     ],
 )
-def test_export_conv3d_module_identity_selects_mlir_op(tmp_path, module, expected_op):
-    report = export_lattice_artifact(
+def test_artifact_conv3d_module_identity_selects_mlir_op(tmp_path, module, expected_op):
+    report = save_lattice_artifact(
         module.eval(),
         tmp_path / "identity.lattice",
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
     assert expected_op in graph
 
 
-def test_export_conv3d_weight_layout(tmp_path):
+def test_artifact_conv3d_weight_layout(tmp_path):
     conv = spnn.Conv3d(2, 3, kernel_size=(2, 1, 2), stride=(2, 1, 2), bias=False)
     with torch.no_grad():
         conv.kernel.copy_(torch.arange(conv.kernel.numel()).reshape_as(conv.kernel))
 
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         conv,
         tmp_path / "conv.lattice",
-        options=LatticeExportOptions(batch_size=2),
+        options=LatticeArtifactOptions(batch_size=2),
     )
     weights = load_file(report.weights_path)
 
@@ -219,7 +219,7 @@ def test_export_conv3d_weight_layout(tmp_path):
 
 def test_explicit_builder_exports_same_artifact_shape(tmp_path):
     model = TinySparseModel().eval()
-    builder = TorchLatticeExportBuilder(batch_size=2)
+    builder = TorchLatticeArtifactBuilder(batch_size=2)
     builder.module("stem", model.stem)
     builder.module("act", model.act)
     builder.module("pool", model.pool)
@@ -237,14 +237,14 @@ def test_explicit_builder_exports_same_artifact_shape(tmp_path):
 
 
 @pytest.mark.parametrize("module", [spnn.InstanceNorm(3), spnn.GroupNorm(1, 3)])
-def test_export_rejects_norms_without_mlx_mlir_semantics(tmp_path, module):
+def test_artifact_rejects_norms_without_mlx_mlir_semantics(tmp_path, module):
     model = nn.Sequential(spnn.Conv3d(2, 3, kernel_size=1), module).eval()
 
     with pytest.raises(ValueError, match="not supported"):
-        export_lattice_artifact(
+        save_lattice_artifact(
             model,
             tmp_path / "unsupported.lattice",
-            options=LatticeExportOptions(batch_size=2),
+            options=LatticeArtifactOptions(batch_size=2),
         )
 
 

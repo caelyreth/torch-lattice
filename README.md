@@ -17,7 +17,7 @@ Convolution classes are explicit:
 - `torch_lattice.nn.GenerativeConvTranspose3d` exports to
   `lattice.generative_conv_transpose3d`.
 
-Exporters lower module identity directly. They do not infer submanifold
+Artifact builders lower module identity directly. They do not infer submanifold
 semantics from stride, padding, or legacy indice-key conventions.
 
 Credit: this project is based on MIT Han Lab's original

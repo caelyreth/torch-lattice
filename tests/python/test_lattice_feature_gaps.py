@@ -8,11 +8,11 @@ from safetensors.torch import load_file
 import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
-from torch_lattice.export import (
-    LatticeExportOptions,
-    TorchLatticeExportBuilder,
-    export_lattice_artifact,
-    lower_fx_module,
+from torch_lattice.artifact import (
+    LatticeArtifactOptions,
+    TorchLatticeArtifactBuilder,
+    save_lattice_artifact,
+    lower_fx_artifact,
 )
 
 
@@ -90,7 +90,7 @@ def test_high_level_voxelize_and_devoxelize_runtime():
     torch.testing.assert_close(sampled, torch.tensor([[2.0, 3.0], [2.0, 3.0], [9.0, 10.0]]))
 
 
-def test_export_pool_and_target_conv_mlir(tmp_path):
+def test_artifact_pool_and_target_conv_mlir(tmp_path):
     class Model(nn.Module):
         def __init__(self):
             super().__init__()
@@ -100,16 +100,16 @@ def test_export_pool_and_target_conv_mlir(tmp_path):
         def forward(self, x, target):
             return self.pool(self.target(x, target))
 
-    builder = TorchLatticeExportBuilder(input_dtype="f32")
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32")
     target = builder.sparse_input()
-    lower_fx_module(builder, Model().eval(), inputs=(builder.current, target))
+    lower_fx_artifact(builder, Model().eval(), inputs=(builder.current, target))
     graph = builder.to_mlir()
     assert "lattice.target_conv3d" in graph
     assert "lattice.pool3d" in graph
 
 
-def test_export_voxelize_and_devoxelize_mlir():
-    builder = TorchLatticeExportBuilder(input_dtype="f32")
+def test_artifact_voxelize_and_devoxelize_mlir():
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32")
     points = builder.dense_argument("points", "tensor<?x3xf32>")
     features = builder.dense_argument("point_features", "tensor<?x2xf32>", channels=2)
     batches = builder.dense_argument("batch_indices", "tensor<?xi32>")
@@ -136,12 +136,12 @@ def test_export_voxelize_and_devoxelize_mlir():
     assert "lattice.devoxelize" in graph
 
 
-def test_quantized_artifact_export_stores_packed_weights(tmp_path):
+def test_quantized_artifact_stores_packed_weights(tmp_path):
     model = nn.Sequential(spnn.Conv3d(2, 3, kernel_size=1, bias=False)).eval()
-    report = export_lattice_artifact(
+    report = save_lattice_artifact(
         model,
         tmp_path,
-        options=LatticeExportOptions(quantize_bits=8, quantize_group_size=32),
+        options=LatticeArtifactOptions(quantize_bits=8, quantize_group_size=32),
     )
     graph = report.graph_path.read_text()
     weights = load_file(report.weights_path)
@@ -167,7 +167,7 @@ def test_sparse_activation_modules_and_norm_runtime():
         assert out.feats.shape == x.feats.shape
 
 
-def test_export_activation_and_norm_modules_mlir():
+def test_artifact_activation_and_norm_modules_mlir():
     model = nn.Sequential(
         spnn.Conv3d(4, 4, kernel_size=1),
         spnn.GELU(approximate="tanh"),
@@ -177,8 +177,8 @@ def test_export_activation_and_norm_modules_mlir():
         spnn.LayerNorm(4),
         spnn.RMSNorm(4),
     ).eval()
-    builder = TorchLatticeExportBuilder(input_dtype="f32")
-    lower_fx_module(builder, model)
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32")
+    lower_fx_artifact(builder, model)
     graph = builder.to_mlir()
     assert graph.count(" = lattice.activation ") == 4
     assert "kind = #lattice.activation<gelu>" in graph
@@ -190,7 +190,7 @@ def test_export_activation_and_norm_modules_mlir():
     assert "lattice.rms_norm" in graph
 
 
-def test_export_dense_head_activations_and_norms_mlir():
+def test_artifact_dense_head_activations_and_norms_mlir():
     model = nn.Sequential(
         spnn.GlobalAvgPool(),
         nn.LayerNorm(2),
@@ -200,8 +200,8 @@ def test_export_dense_head_activations_and_norms_mlir():
         nn.Softplus(),
         nn.Linear(2, 2),
     ).eval()
-    builder = TorchLatticeExportBuilder(input_dtype="f32", batch_size=1)
-    lower_fx_module(builder, model)
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32", batch_size=1)
+    lower_fx_artifact(builder, model)
     graph = builder.to_mlir()
     assert "lattice.global_pool" in graph
     assert "lattice.layer_norm" in graph
@@ -209,24 +209,24 @@ def test_export_dense_head_activations_and_norms_mlir():
     assert "lattice.linear" in graph
 
 
-def test_export_sparse_crop_reports_missing_dialect_op(tmp_path):
+def test_artifact_sparse_crop_reports_missing_dialect_op(tmp_path):
     model = nn.Sequential(
         spnn.Conv3d(2, 2, kernel_size=1),
         spnn.SparseCrop(coords_min=(0, 0, 0), coords_max=(2, 2, 2)),
     ).eval()
     with pytest.raises(ValueError, match="sparse crop op"):
-        export_lattice_artifact(model, tmp_path)
+        save_lattice_artifact(model, tmp_path)
 
 
-def test_export_dense_head_dropout_flatten_identity_mlir():
+def test_artifact_dense_head_dropout_flatten_identity_mlir():
     model = nn.Sequential(
         spnn.GlobalAvgPool(),
         nn.Dropout(p=0.5),
         nn.Flatten(start_dim=1),
         nn.Linear(2, 2),
     ).eval()
-    builder = TorchLatticeExportBuilder(input_dtype="f32", batch_size=1)
-    lower_fx_module(builder, model)
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32", batch_size=1)
+    lower_fx_artifact(builder, model)
     graph = builder.to_mlir()
     assert "lattice.global_pool" in graph
     assert "lattice.linear" in graph
@@ -234,11 +234,11 @@ def test_export_dense_head_dropout_flatten_identity_mlir():
     assert "flatten" not in graph.lower()
 
 
-def test_export_training_dropout_rejected(tmp_path):
+def test_artifact_training_dropout_rejected(tmp_path):
     model = nn.Sequential(spnn.GlobalAvgPool(), nn.Dropout(p=0.5), nn.Linear(2, 2))
     with pytest.raises(ValueError, match="eval mode"):
-        export_lattice_artifact(
+        save_lattice_artifact(
             model,
             tmp_path,
-            options=LatticeExportOptions(batch_size=1),
+            options=LatticeArtifactOptions(batch_size=1),
         )
