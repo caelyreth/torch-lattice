@@ -46,6 +46,9 @@ class LatticeExportOptions:
     batch_size: int | None = None
     clean: bool = True
     validate: bool = True
+    quantize_bits: int | None = None
+    quantize_group_size: int = 32
+    quantize_scale_dtype: str = "f16"
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,9 @@ def export_lattice_artifact(
         output_name=output_name,
         input_dtype=options.input_dtype,
         batch_size=options.batch_size,
+        quantize_bits=options.quantize_bits,
+        quantize_group_size=options.quantize_group_size,
+        quantize_scale_dtype=options.quantize_scale_dtype,
     )
     lower_fx_module(export_builder, model)
     return export_builder.save(
@@ -143,6 +149,9 @@ def _options_with_sample_defaults(
         batch_size=batch_size,
         clean=options.clean,
         validate=options.validate,
+        quantize_bits=options.quantize_bits,
+        quantize_group_size=options.quantize_group_size,
+        quantize_scale_dtype=options.quantize_scale_dtype,
     )
 
 

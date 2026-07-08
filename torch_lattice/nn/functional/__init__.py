@@ -7,3 +7,4 @@ from .hash import *
 from .pooling import *
 from .query import *
 from .voxelize import *
+from .relation import *

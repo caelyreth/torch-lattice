@@ -17,6 +17,7 @@ try:
         TensorType,
         WeightType,
         dense_packing,
+        quantized_packing,
     )
 except ImportError as exc:  # pragma: no cover - import-time environment guard
     raise ImportError(
@@ -39,13 +40,7 @@ class ExportValue:
 
 
 class TorchLatticeExportBuilder:
-    """Explicit builder for Torch-to-lattice MLIR artifacts.
-
-    The public ``module`` method keeps the ergonomic sequential-builder API.
-    ``lower_module`` and sparse merge helpers are used by the FX interpreter so
-    branch topology is represented directly in MLIR without relying on mutable
-    current-value side effects.
-    """
+    """Explicit builder for Torch-to-lattice MLIR artifacts."""
 
     def __init__(
         self,
@@ -54,11 +49,19 @@ class TorchLatticeExportBuilder:
         output_name: str = "output",
         input_dtype: str = "f32",
         batch_size: int | None = None,
+        quantize_bits: int | None = None,
+        quantize_group_size: int = 32,
+        quantize_scale_dtype: str = "f16",
     ) -> None:
+        if quantize_bits is not None and quantize_bits not in (4, 8):
+            raise ValueError("quantize_bits must be None, 4, or 8.")
         self.input_name = input_name
         self.output_name = output_name
         self.input_dtype = input_dtype
         self.batch_size = batch_size
+        self.quantize_bits = quantize_bits
+        self.quantize_group_size = int(quantize_group_size)
+        self.quantize_scale_dtype = quantize_scale_dtype
         self._builder = MLIRModuleBuilder()
         self._weights: dict[str, torch.Tensor] = {}
         self._value = self.sparse_input()
@@ -100,9 +103,17 @@ class TorchLatticeExportBuilder:
         )
         return ExportValue(value=value, kind="sparse_tensor", channels=None)
 
-    def module(self, name: str, module: nn.Module) -> ExportValue:
-        """Append ``module`` to the sequential explicit-builder chain."""
+    def dense_argument(
+        self,
+        name: str,
+        type: str | TensorType,
+        *,
+        channels: int | None = None,
+    ) -> ExportValue:
+        value = self._builder.argument(name, type if isinstance(type, TensorType) else TensorType(type))
+        return ExportValue(value=value, kind="dense_tensor", channels=channels)
 
+    def module(self, name: str, module: nn.Module) -> ExportValue:
         value = self.lower_module(name, module, self._value)
         self._value = value
         return value
@@ -111,10 +122,15 @@ class TorchLatticeExportBuilder:
         self,
         name: str,
         module: nn.Module,
-        input: ExportValue,
+        *inputs: ExportValue,
     ) -> ExportValue:
-        """Lower one supported module against an explicit symbolic input."""
-
+        if isinstance(module, spnn.TargetConv3d):
+            if len(inputs) != 2:
+                raise ValueError("TargetConv3d export expects input and target sparse tensors.")
+            return self.target_conv3d(name, module, inputs[0], inputs[1])
+        if len(inputs) != 1:
+            raise ValueError(f"module {name} must consume exactly one symbolic lattice value.")
+        input = inputs[0]
         if isinstance(
             module,
             (
@@ -137,6 +153,8 @@ class TorchLatticeExportBuilder:
             return self.activation(name, "leaky_relu", input=input, alpha=float(module.negative_slope))
         if isinstance(module, (spnn.SiLU, nn.SiLU)):
             return self.activation(name, "silu", input=input)
+        if isinstance(module, spnn.Pool3d):
+            return self.pool3d(name, module, input)
         if isinstance(module, spnn.GlobalAvgPool):
             return self.global_pool(name, "avg", input)
         if isinstance(module, spnn.GlobalMaxPool):
@@ -165,13 +183,7 @@ class TorchLatticeExportBuilder:
         )
         bias = None
         if module.bias is not None:
-            bias = self._weight(
-                name,
-                "bias",
-                module.bias.detach(),
-                family="bias",
-                layout="bias_c",
-            )
+            bias = self._weight(name, "bias", module.bias.detach(), family="bias", layout="bias_c")
 
         kwargs = {
             "input": value.value,
@@ -182,10 +194,7 @@ class TorchLatticeExportBuilder:
             "result": _safe_value_name(name),
         }
         if isinstance(module, spnn.GenerativeConvTranspose3d):
-            out = self._builder.generative_conv_transpose3d(
-                **kwargs,
-                stride=_triple(module.stride),
-            )
+            out = self._builder.generative_conv_transpose3d(**kwargs, stride=_triple(module.stride))
         elif isinstance(module, spnn.ConvTranspose3d):
             out = self._builder.conv_transpose3d(
                 **kwargs,
@@ -194,10 +203,7 @@ class TorchLatticeExportBuilder:
                 dilation=_triple(module.dilation),
             )
         elif isinstance(module, spnn.SubmConv3d):
-            out = self._builder.subm_conv3d(
-                **kwargs,
-                dilation=_triple(module.dilation),
-            )
+            out = self._builder.subm_conv3d(**kwargs, dilation=_triple(module.dilation))
         elif isinstance(module, spnn.Conv3d):
             out = self._builder.conv3d(
                 **kwargs,
@@ -208,6 +214,122 @@ class TorchLatticeExportBuilder:
         else:  # pragma: no cover - protected by lower_module dispatch.
             raise TypeError(f"unsupported convolution module: {type(module).__name__}")
         return ExportValue(out, "sparse_tensor", module.out_channels)
+
+    def target_conv3d(
+        self,
+        name: str,
+        module: spnn.TargetConv3d,
+        input: ExportValue,
+        target: ExportValue,
+    ) -> ExportValue:
+        self._require_sparse(input, module)
+        self._require_sparse(target, module)
+        weight = self._weight(
+            name,
+            "weight",
+            _conv_weight_to_mlx(module),
+            family="conv3d",
+            layout="conv3d_o_zyx_i",
+        )
+        bias = None
+        if module.bias is not None:
+            bias = self._weight(name, "bias", module.bias.detach(), family="bias", layout="bias_c")
+        out = self._builder.target_conv3d(
+            input=input.value,
+            target=target.value,
+            weight=weight,
+            bias=bias,
+            kernel_size=_triple(module.kernel_size),
+            stride=_triple(module.stride),
+            padding=_triple(module.padding),
+            dilation=_triple(module.dilation),
+            result_type=SparseTensorType(dtype=self._dtype_for_module(module)),
+            result=_safe_value_name(name),
+        )
+        return ExportValue(out, "sparse_tensor", module.out_channels)
+
+    def pool3d(
+        self,
+        name: str,
+        module: spnn.Pool3d,
+        input: ExportValue | None = None,
+    ) -> ExportValue:
+        value = self._current_or(input)
+        self._require_sparse(value, module)
+        out = self._builder.pool3d(
+            input=value.value,
+            mode=module.mode,
+            kernel_size=_triple(module.kernel_size),
+            stride=_triple(module.stride),
+            padding=_triple(module.padding),
+            dilation=_triple(module.dilation),
+            result_type=SparseTensorType(dtype=self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ExportValue(out, "sparse_tensor", value.channels)
+
+    def voxelize(
+        self,
+        name: str,
+        *,
+        points: ExportValue,
+        features: ExportValue,
+        batch_indices: ExportValue,
+        active_rows: ExportValue,
+        voxel_size,
+        origin=0.0,
+        reduction: Literal["sum", "mean"] = "mean",
+        stride=1,
+    ) -> ExportValue:
+        for label, value in {
+            "points": points,
+            "features": features,
+            "batch_indices": batch_indices,
+            "active_rows": active_rows,
+        }.items():
+            self._require_dense_name(value, label)
+        out = self._builder.voxelize(
+            points=points.value,
+            features=features.value,
+            batch_indices=batch_indices.value,
+            active_rows=active_rows.value,
+            voxel_size=_float_triple(voxel_size),
+            origin=_float_triple(origin),
+            reduction=reduction,
+            stride=_triple(stride),
+            result_type=SparseTensorType(dtype=self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ExportValue(out, "sparse_tensor", features.channels)
+
+    def devoxelize(
+        self,
+        name: str,
+        *,
+        points: ExportValue,
+        voxels: ExportValue,
+        batch_indices: ExportValue,
+        point_active_rows: ExportValue,
+        voxel_size,
+        origin=0.0,
+        interpolation: Literal["nearest", "linear"] = "nearest",
+    ) -> ExportValue:
+        self._require_dense_name(points, "points")
+        self._require_sparse_name(voxels, "voxels")
+        self._require_dense_name(batch_indices, "batch_indices")
+        self._require_dense_name(point_active_rows, "point_active_rows")
+        out = self._builder.devoxelize(
+            points=points.value,
+            voxels=voxels.value,
+            batch_indices=batch_indices.value,
+            point_active_rows=point_active_rows.value,
+            voxel_size=_float_triple(voxel_size),
+            origin=_float_triple(origin),
+            interpolation=interpolation,
+            result_type=_feature_type(voxels.channels, self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ExportValue(out, "dense_tensor", voxels.channels)
 
     def batch_norm(
         self,
@@ -298,22 +420,10 @@ class TorchLatticeExportBuilder:
         value = self._current_or(input)
         self._require_dense(value, module)
         dtype = _torch_dtype_name(module.weight.dtype)
-        weight = self._weight(
-            name,
-            "weight",
-            module.weight.detach(),
-            family="linear",
-            layout="linear_o_i",
-        )
+        weight = self._weight(name, "weight", module.weight.detach(), family="linear", layout="linear_o_i")
         bias = None
         if module.bias is not None:
-            bias = self._weight(
-                name,
-                "bias",
-                module.bias.detach(),
-                family="bias",
-                layout="bias_c",
-            )
+            bias = self._weight(name, "bias", module.bias.detach(), family="bias", layout="bias_c")
         out = self._builder.linear(
             input=value.value,
             weight=weight,
@@ -336,11 +446,7 @@ class TorchLatticeExportBuilder:
     ) -> ExportValue:
         self._require_sparse_name(lhs, f"sparse {op} lhs")
         self._require_sparse_name(rhs, f"sparse {op} rhs")
-        if (
-            lhs.channels is not None
-            and rhs.channels is not None
-            and lhs.channels != rhs.channels
-        ):
+        if lhs.channels is not None and rhs.channels is not None and lhs.channels != rhs.channels:
             raise ValueError(f"sparse {op} requires matching channel counts.")
         out = self._builder.sparse_binary(
             lhs=lhs.value,
@@ -354,34 +460,10 @@ class TorchLatticeExportBuilder:
         )
         return ExportValue(out, "sparse_tensor", lhs.channels or rhs.channels)
 
-    def sparse_add(
-        self,
-        name: str,
-        lhs: ExportValue,
-        rhs: ExportValue,
-        *,
-        join: str = "outer",
-        lhs_fill: float = 0.0,
-        rhs_fill: float = 0.0,
-    ) -> ExportValue:
-        return self.sparse_binary(
-            name,
-            lhs,
-            rhs,
-            "add",
-            join=join,
-            lhs_fill=lhs_fill,
-            rhs_fill=rhs_fill,
-        )
+    def sparse_add(self, name: str, lhs: ExportValue, rhs: ExportValue, *, join: str = "outer", lhs_fill: float = 0.0, rhs_fill: float = 0.0) -> ExportValue:
+        return self.sparse_binary(name, lhs, rhs, "add", join=join, lhs_fill=lhs_fill, rhs_fill=rhs_fill)
 
-    def sparse_cat(
-        self,
-        name: str,
-        lhs: ExportValue,
-        rhs: ExportValue,
-        *,
-        join: str = "inner",
-    ) -> ExportValue:
+    def sparse_cat(self, name: str, lhs: ExportValue, rhs: ExportValue, *, join: str = "inner") -> ExportValue:
         self._require_sparse_name(lhs, "sparse cat lhs")
         self._require_sparse_name(rhs, "sparse cat rhs")
         channels = None
@@ -411,12 +493,7 @@ class TorchLatticeExportBuilder:
         del validate
         from .artifact import _save_artifact
 
-        return _save_artifact(
-            artifact_dir,
-            self.to_mlir(),
-            self._weights,
-            clean=clean,
-        )
+        return _save_artifact(artifact_dir, self.to_mlir(), self._weights, clean=clean)
 
     def _current_or(self, value: ExportValue | None) -> ExportValue:
         return self._value if value is None else value
@@ -449,62 +526,48 @@ class TorchLatticeExportBuilder:
             result=f"{_safe_value_name(name)}_features",
         )
 
-    def _weight(
-        self,
-        module_name: str,
-        parameter_name: str,
-        tensor: torch.Tensor,
-        *,
-        family: str,
-        layout: str,
-    ):
+    def _weight(self, module_name: str, parameter_name: str, tensor: torch.Tensor, *, family: str, layout: str):
         key = f"{_safe_key(module_name)}.{parameter_name}"
-        if key in self._weights:
+        if key in self._weights or f"{key}.weight" in self._weights:
             raise ValueError(f"duplicate exported weight key: {key}")
         tensor = tensor.detach().cpu().contiguous()
-        self._weights[key] = tensor
+        packing = dense_packing()
+        stored_dtype = _torch_dtype_name(tensor.dtype)
+        if self.quantize_bits is not None and family in {"conv3d", "linear"}:
+            packed = _pack_quantized_weight(
+                tensor,
+                bits=self.quantize_bits,
+                group_size=self.quantize_group_size,
+                scale_dtype=self.quantize_scale_dtype,
+            )
+            self._weights[f"{key}.weight"] = packed.weight
+            self._weights[f"{key}.scales"] = packed.scales
+            self._weights[f"{key}.biases"] = packed.biases
+            packing = quantized_packing(
+                f"int{self.quantize_bits}",
+                group_size=self.quantize_group_size,
+                scale_dtype=self.quantize_scale_dtype,
+            )
+        else:
+            self._weights[key] = tensor
         return self._builder.weight(
             sym_name=_safe_value_name(key),
             storage_key=key,
             layout=layout,
-            packing=dense_packing(),
-            result_type=WeightType(family, _torch_dtype_name(tensor.dtype)),
+            packing=packing,
+            result_type=WeightType(family, stored_dtype),
             result=_safe_value_name(key),
         )
 
-    def _optional_channel_weight(
-        self,
-        module_name: str,
-        parameter_name: str,
-        tensor: torch.Tensor | None,
-        *,
-        family: str = "channel",
-        layout: str = "channel_c",
-        dtype: str,
-    ):
+    def _optional_channel_weight(self, module_name: str, parameter_name: str, tensor: torch.Tensor | None, *, family: str = "channel", layout: str = "channel_c", dtype: str):
         del dtype
         if tensor is None:
             return None
         return self._weight(module_name, parameter_name, tensor, family=family, layout=layout)
 
-    def _constant_channel_weight(
-        self,
-        module_name: str,
-        parameter_name: str,
-        tensor: torch.Tensor,
-        *,
-        family: str = "channel",
-        layout: str = "channel_c",
-        dtype: str,
-    ):
+    def _constant_channel_weight(self, module_name: str, parameter_name: str, tensor: torch.Tensor, *, family: str = "channel", layout: str = "channel_c", dtype: str):
         torch_dtype = torch.float16 if dtype == "f16" else torch.float32
-        return self._weight(
-            module_name,
-            parameter_name,
-            tensor.to(dtype=torch_dtype),
-            family=family,
-            layout=layout,
-        )
+        return self._weight(module_name, parameter_name, tensor.to(dtype=torch_dtype), family=family, layout=layout)
 
     def _require_sparse(self, value: ExportValue, module: nn.Module) -> None:
         self._require_sparse_name(value, type(module).__name__)
@@ -514,13 +577,82 @@ class TorchLatticeExportBuilder:
             raise ValueError(f"{name} expects sparse_tensor, got {value.kind}.")
 
     def _require_dense(self, value: ExportValue, module: nn.Module) -> None:
+        self._require_dense_name(value, type(module).__name__)
+
+    def _require_dense_name(self, value: ExportValue, name: str) -> None:
         if value.kind != "dense_tensor":
-            raise ValueError(f"{type(module).__name__} expects dense_tensor, got {value.kind}.")
+            raise ValueError(f"{name} expects dense_tensor, got {value.kind}.")
 
     def _dtype_for_module(self, module: nn.Module) -> str:
         for parameter in module.parameters(recurse=False):
             return _torch_dtype_name(parameter.dtype)
         return self.input_dtype
+
+
+@dataclass(frozen=True)
+class PackedWeight:
+    weight: torch.Tensor
+    scales: torch.Tensor
+    biases: torch.Tensor
+
+
+def _pack_quantized_weight(
+    tensor: torch.Tensor,
+    *,
+    bits: int,
+    group_size: int,
+    scale_dtype: str,
+) -> PackedWeight:
+    rows, kernel_rows, out_channels = _weight_rows(tensor.to(torch.float32))
+    storage_channels = _round_up(rows.shape[1], group_size)
+    if storage_channels != rows.shape[1]:
+        rows = torch.nn.functional.pad(rows, (0, storage_channels - rows.shape[1]))
+    grouped = rows.reshape(rows.shape[0], -1, group_size)
+    maximum = grouped.amax(dim=2)
+    minimum = grouped.amin(dim=2)
+    qmax = float((1 << bits) - 1)
+    scales = (minimum - maximum) / qmax
+    biases = maximum
+    normalized = torch.where(
+        scales.unsqueeze(2) != 0,
+        (grouped - biases.unsqueeze(2)) / scales.unsqueeze(2),
+        torch.zeros_like(grouped),
+    )
+    codes = normalized.round().clamp(0, qmax).to(torch.uint32).reshape(rows.shape[0], storage_channels)
+    packed = _pack_codes(codes, bits)
+    scale_dtype_torch = torch.float16 if scale_dtype == "f16" else torch.float32
+    packed = packed.reshape(kernel_rows, out_channels, -1).contiguous()
+    scales = scales.to(scale_dtype_torch).reshape(kernel_rows, out_channels, -1).contiguous()
+    biases = biases.to(scale_dtype_torch).reshape(kernel_rows, out_channels, -1).contiguous()
+    if kernel_rows > 1:
+        packed = packed.transpose(1, 2).contiguous()
+        scales = scales.transpose(1, 2).contiguous()
+        biases = biases.transpose(1, 2).contiguous()
+    return PackedWeight(packed.cpu(), scales.cpu(), biases.cpu())
+
+
+def _pack_codes(codes: torch.Tensor, bits: int) -> torch.Tensor:
+    values_per_word = 32 // bits
+    words = codes.to(torch.int64).reshape(codes.shape[0], -1, values_per_word)
+    packed = torch.zeros(words.shape[:2], dtype=torch.int64)
+    for lane in range(values_per_word):
+        packed |= words[:, :, lane] << (bits * lane)
+    return packed.to(torch.uint32)
+
+
+def _weight_rows(tensor: torch.Tensor) -> tuple[torch.Tensor, int, int]:
+    if tensor.ndim == 2:
+        out_channels, _ = tensor.shape
+        return tensor, 1, int(out_channels)
+    if tensor.ndim == 3:
+        kernel_rows, in_channels, out_channels = tensor.shape
+        rows = tensor.transpose(1, 2).reshape(kernel_rows * out_channels, in_channels)
+        return rows, int(kernel_rows), int(out_channels)
+    if tensor.ndim == 5:
+        out_channels, kx, ky, kz, in_channels = tensor.shape
+        rows = tensor.permute(1, 2, 3, 0, 4).reshape(kx * ky * kz * out_channels, in_channels)
+        return rows, int(kx * ky * kz), int(out_channels)
+    raise ValueError("quantized export supports linear, kernel-major, and 5D convolution weights.")
 
 
 def _conv_weight_to_mlx(module: spnn.Conv3d) -> torch.Tensor:
@@ -530,14 +662,8 @@ def _conv_weight_to_mlx(module: spnn.Conv3d) -> torch.Tensor:
         weight = weight.reshape(1, weight.shape[0], weight.shape[1])
     expected_kernel_volume = kernel_size[0] * kernel_size[1] * kernel_size[2]
     if weight.ndim != 3 or weight.shape[0] != expected_kernel_volume:
-        raise ValueError(
-            f"Conv3d kernel shape {tuple(weight.shape)} does not match kernel_size={kernel_size}."
-        )
-    return (
-        weight.reshape(*kernel_size, module.in_channels, module.out_channels)
-        .permute(4, 0, 1, 2, 3)
-        .contiguous()
-    )
+        raise ValueError(f"Conv3d kernel shape {tuple(weight.shape)} does not match kernel_size={kernel_size}.")
+    return weight.reshape(*kernel_size, module.in_channels, module.out_channels).permute(4, 0, 1, 2, 3).contiguous()
 
 
 def _feature_type(channels: int | None, dtype: str) -> TensorType:
@@ -558,12 +684,28 @@ def _triple(value) -> tuple[int, int, int]:
     raise ValueError(f"expected an int or length-3 tuple, got {value!r}.")
 
 
+def _float_triple(value) -> tuple[float, float, float]:
+    if isinstance(value, (int, float)):
+        return (float(value), float(value), float(value))
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().reshape(-1).tolist()
+    if isinstance(value, list):
+        value = tuple(value)
+    if isinstance(value, tuple) and len(value) == 3:
+        return tuple(float(item) for item in value)
+    raise ValueError(f"expected a scalar or length-3 tuple, got {value!r}.")
+
+
 def _torch_dtype_name(dtype: torch.dtype) -> str:
     if dtype == torch.float16:
         return "f16"
     if dtype == torch.float32:
         return "f32"
     raise ValueError(f"unsupported tensor dtype for lattice export: {dtype}")
+
+
+def _round_up(value: int, multiple: int) -> int:
+    return ((int(value) + int(multiple) - 1) // int(multiple)) * int(multiple)
 
 
 def _safe_key(value: str) -> str:

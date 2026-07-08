@@ -16,6 +16,7 @@ __all__ = [
     "SubmConv3d",
     "ConvTranspose3d",
     "GenerativeConvTranspose3d",
+    "TargetConv3d",
 ]
 
 
@@ -211,4 +212,45 @@ class GenerativeConvTranspose3d(_BaseConv3d):
             transposed=True,
             generative=True,
             config=config,
+        )
+
+
+
+class TargetConv3d(_BaseConv3d):
+    """Sparse 3D convolution evaluated on explicit target coordinates."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: Union[int, List[int], Tuple[int, ...]] = 3,
+        stride: Union[int, List[int], Tuple[int, ...]] = 1,
+        padding: Union[int, Tuple[int, ...]] = 0,
+        dilation: int = 1,
+        bias: bool = False,
+        config: Dict | None = None,
+    ) -> None:
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            bias,
+            config=config,
+        )
+
+    def forward(self, input: SparseTensor, target: SparseTensor) -> SparseTensor:
+        return F.target_conv3d(
+            input,
+            target,
+            weight=self.kernel,
+            kernel_size=self.kernel_size,
+            bias=self.bias,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            config=self._config,
+            training=self.training,
         )

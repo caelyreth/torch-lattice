@@ -11,6 +11,7 @@ from torch.utils import _pytree
 import torch_lattice
 from torch_lattice import nn as spnn
 from torch_lattice import operators as lattice_ops
+from torch_lattice.nn import functional as F
 
 from .builder import ExportValue, TorchLatticeExportBuilder
 
@@ -22,12 +23,14 @@ SUPPORTED_LEAF_MODULES = (
     spnn.SubmConv3d,
     spnn.ConvTranspose3d,
     spnn.GenerativeConvTranspose3d,
+    spnn.TargetConv3d,
     spnn.BatchNorm,
     spnn.InstanceNorm,
     spnn.GroupNorm,
     spnn.ReLU,
     spnn.LeakyReLU,
     spnn.SiLU,
+    spnn.Pool3d,
     spnn.GlobalAvgPool,
     spnn.GlobalMaxPool,
     nn.Linear,
@@ -73,6 +76,12 @@ _BINARY_FUNCTIONS = {
     if fn is not None
 }
 
+_VOXELIZE_FUNCTIONS = frozenset(
+    fn for fn in (torch_lattice.voxelize, F.voxelize) if fn is not None
+)
+_DEVOXELIZE_FUNCTIONS = frozenset(
+    fn for fn in (torch_lattice.devoxelize, F.devoxelize) if fn is not None
+)
 _STRUCTURAL_FUNCTIONS = frozenset((operator.getitem,))
 
 
@@ -81,9 +90,12 @@ class LatticeTracer(fx.Tracer):
 
     def __init__(self) -> None:
         super().__init__(
-            autowrap_modules=(torch_lattice, lattice_ops),
+            autowrap_modules=(torch_lattice, lattice_ops, F),
             autowrap_functions=tuple(
-                _CAT_FUNCTIONS | frozenset(_BINARY_FUNCTIONS)
+                _CAT_FUNCTIONS
+                | frozenset(_BINARY_FUNCTIONS)
+                | _VOXELIZE_FUNCTIONS
+                | _DEVOXELIZE_FUNCTIONS
             ),
         )
 
@@ -96,11 +108,7 @@ class LatticeTracer(fx.Tracer):
 class LatticeExportInterpreter(fx.Interpreter):
     """Lower an FX graph by interpreting it with symbolic lattice values."""
 
-    def __init__(
-        self,
-        module: fx.GraphModule,
-        builder: TorchLatticeExportBuilder,
-    ) -> None:
+    def __init__(self, module: fx.GraphModule, builder: TorchLatticeExportBuilder) -> None:
         super().__init__(module)
         self.builder = builder
 
@@ -111,8 +119,8 @@ class LatticeExportInterpreter(fx.Interpreter):
         kwargs: dict[str, Any],
     ) -> ExportValue:
         module = self.fetch_attr(str(target))
-        value = _single_export_value(args, kwargs, context=str(target))
-        return self.builder.lower_module(str(target), module, value)
+        values = _export_values(args, kwargs)
+        return self.builder.lower_module(str(target), module, *values)
 
     def call_function(
         self,
@@ -124,6 +132,10 @@ class LatticeExportInterpreter(fx.Interpreter):
             return self._cat(args, kwargs)
         if target in _BINARY_FUNCTIONS:
             return self._binary(_BINARY_FUNCTIONS[target], args, kwargs)
+        if target in _VOXELIZE_FUNCTIONS:
+            return self._voxelize(args, kwargs)
+        if target in _DEVOXELIZE_FUNCTIONS:
+            return self._devoxelize(args, kwargs)
         if target in _STRUCTURAL_FUNCTIONS:
             return super().call_function(target, args, kwargs)
         raise ValueError(f"unsupported FX function for lattice export: {target}")
@@ -146,17 +158,10 @@ class LatticeExportInterpreter(fx.Interpreter):
             out = self.builder.sparse_cat(f"{stem}_{index}", out, value)
         return out
 
-    def _binary(
-        self,
-        op: str,
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-    ) -> ExportValue:
+    def _binary(self, op: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> ExportValue:
         values = _export_values(args, kwargs)
         if len(values) != 2:
-            raise ValueError(
-                f"lattice {op} export requires exactly two sparse values."
-            )
+            raise ValueError(f"lattice {op} export requires exactly two sparse values.")
         return self.builder.sparse_binary(
             _current_node_name(self, op),
             values[0],
@@ -167,10 +172,42 @@ class LatticeExportInterpreter(fx.Interpreter):
             rhs_fill=float(kwargs.get("rhs_fill", 0.0)),
         )
 
+    def _voxelize(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> ExportValue:
+        values = _export_values(args, kwargs)
+        if len(values) < 4:
+            raise ValueError("voxelize export requires points, features, batch_indices, and active_rows values.")
+        return self.builder.voxelize(
+            _current_node_name(self, "voxelize"),
+            points=values[0],
+            features=values[1],
+            batch_indices=values[2],
+            active_rows=values[3],
+            voxel_size=kwargs.get("voxel_size", 1.0),
+            origin=kwargs.get("origin", 0.0),
+            reduction=kwargs.get("reduction", "mean"),
+            stride=kwargs.get("stride", 1),
+        )
+
+    def _devoxelize(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> ExportValue:
+        values = _export_values(args, kwargs)
+        if len(values) < 4:
+            raise ValueError("devoxelize export requires points, voxels, batch_indices, and point_active_rows values.")
+        return self.builder.devoxelize(
+            _current_node_name(self, "devoxelize"),
+            points=values[0],
+            voxels=values[1],
+            batch_indices=values[2],
+            point_active_rows=values[3],
+            voxel_size=kwargs.get("voxel_size", 1.0),
+            origin=kwargs.get("origin", 0.0),
+            interpolation=kwargs.get("interpolation", "nearest"),
+        )
+
 
 def lower_fx_module(
     builder: TorchLatticeExportBuilder,
     model: nn.Module,
+    inputs: Iterable[ExportValue] | None = None,
 ) -> TorchLatticeExportBuilder:
     if isinstance(model, SUPPORTED_LEAF_MODULES):
         builder.module(type(model).__name__.lower(), model)
@@ -179,7 +216,8 @@ def lower_fx_module(
 
     graph = LatticeTracer().trace(model)
     graph_module = fx.GraphModule(model, graph)
-    result = LatticeExportInterpreter(graph_module, builder).run(builder.current)
+    run_inputs = tuple(inputs) if inputs is not None else (builder.current,)
+    result = LatticeExportInterpreter(graph_module, builder).run(*run_inputs)
     builder.output(_single_output_value(result))
     return builder
 
@@ -188,20 +226,6 @@ def _default_join(op: str) -> str:
     if op in {"mul", "maximum", "minimum"}:
         return "inner"
     return "outer"
-
-
-def _single_export_value(
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    *,
-    context: str,
-) -> ExportValue:
-    values = _export_values(args, kwargs)
-    if len(values) != 1:
-        raise ValueError(
-            f"module {context} must consume exactly one symbolic lattice value."
-        )
-    return values[0]
 
 
 def _single_output_value(value: Any) -> ExportValue:

@@ -8,8 +8,9 @@ from torch_lattice import SparseTensor
 from torch_lattice.utils import make_ntuple
 
 from .func import *
+from ..relation import build_target_out_in_map, gather_scatter_kmap_from_out_in_map
 
-__all__ = ["conv3d"]
+__all__ = ["conv3d", "target_conv3d"]
 
 
 def _make_kmap_cache_key(
@@ -275,3 +276,83 @@ def conv3d(
         output.stride, (output.coords, output.spatial_range)
     )
     return output
+
+
+
+def target_conv3d(
+    input: SparseTensor,
+    target: SparseTensor,
+    weight: torch.Tensor,
+    kernel_size: Union[int, List[int], Tuple[int, ...]],
+    bias: Optional[torch.Tensor] = None,
+    stride: Union[int, List[int], Tuple[int, ...]] = 1,
+    padding: Union[int, Tuple[int, ...]] = 0,
+    dilation: Union[int, Tuple[int, ...]] = 1,
+    config: Dict = None,
+    training: bool = False,
+) -> SparseTensor:
+    """Sparse convolution evaluated only at ``target`` coordinates."""
+
+    from torch_lattice.nn import functional as F
+
+    kernel_size = make_ntuple(kernel_size, ndim=3)
+    stride = make_ntuple(stride, ndim=3)
+    padding = make_ntuple(padding, ndim=3)
+    dilation = make_ntuple(dilation, ndim=3)
+    weight = _kernel_weight(weight, kernel_size)
+
+    if config is None:
+        config = F.conv_config.get_global_conv_config()
+        if config is None:
+            config = F.conv_config.get_default_conv_config(
+                conv_mode=F.get_conv_mode(), training=training
+            )
+    config = config.copy()
+    config.dataflow = F.Dataflow.GatherScatter
+    config.ifsort = False
+
+    relation = build_target_out_in_map(
+        input.coords,
+        target.coords,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+    )
+    kmap = gather_scatter_kmap_from_out_in_map(
+        relation,
+        input_size=int(input.feats.shape[0]),
+    )
+    feats = GatherScatterConvolutionFuntion.apply(
+        input.feats,
+        weight,
+        kmap,
+        config,
+        False,
+    )
+    if bias is not None:
+        feats = feats + bias
+    output = SparseTensor(
+        coords=target.coords,
+        feats=feats,
+        stride=target.stride,
+        spatial_range=target.spatial_range,
+    )
+    output._caches = target._caches
+    return output
+
+
+def _kernel_weight(
+    weight: torch.Tensor,
+    kernel_size: Tuple[int, int, int],
+) -> torch.Tensor:
+    kernel_volume = int(kernel_size[0] * kernel_size[1] * kernel_size[2])
+    if weight.ndim == 2:
+        if kernel_volume != 1:
+            raise ValueError("2D target_conv3d weight requires kernel_size=1.")
+        return weight.reshape(1, weight.shape[0], weight.shape[1]).contiguous()
+    if weight.ndim != 3 or int(weight.shape[0]) != kernel_volume:
+        raise ValueError(
+            f"target_conv3d weight shape {tuple(weight.shape)} does not match kernel_size={kernel_size}."
+        )
+    return weight.contiguous()
