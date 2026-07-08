@@ -66,6 +66,7 @@ def build_kernel_map(
     training: bool = False,
     ifsort: bool = False,
     generative: bool = False,
+    subm: bool = False,
     split_mask_num: int = 1,
     split_mask_num_bwd: int = 1,
     FOD_fusion: bool = True,
@@ -112,7 +113,7 @@ def build_kernel_map(
         _active_kernel_offset_list(
             kernel_size,
             spatial_range,
-            not (any(s > 1 for s in stride)),
+            subm,
         )
         if can_compact_active_offsets
         else None
@@ -127,7 +128,6 @@ def build_kernel_map(
         kmap["spatial_range"] = new_spatial_range
     else:
         new_spatial_range = None
-    subm = not (any(s > 1 for s in stride))
     stride = make_tensor(stride, dtype=torch.int, device=_coords.device)
     padding = make_tensor(padding, dtype=torch.int, device=_coords.device)
     kernel_size = make_tensor(kernel_size, dtype=torch.int, device=_coords.device)

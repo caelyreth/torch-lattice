@@ -37,11 +37,11 @@ def post_act_block_ts(in_channels, out_channels, kernel_size, indice_key=None, s
                    conv_type='subm', norm_fn=None):
 
     if conv_type == 'subm':
-        conv = spnn.Conv3d(in_channels, out_channels, kernel_size, bias=False)
+        conv = spnn.SubmConv3d(in_channels, out_channels, kernel_size, bias=False)
     elif conv_type == 'spconv':
         conv = spnn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False)
     elif conv_type == 'inverseconv':
-        conv = spnn.Conv3d(in_channels, out_channels, kernel_size, bias=False, transposed=True)
+        conv = spnn.ConvTranspose3d(in_channels, out_channels, kernel_size, bias=False)
     else:
         raise NotImplementedError
 
@@ -106,7 +106,7 @@ class VoxelResBackBone8xVoxelNeXtTS(nn.Module):
         self.sparse_shape = grid_size[::-1] + [1, 0, 0]
 
         self.conv_input = nn.Sequential(
-            spnn.Conv3d(input_channels, channels[0], 3, padding=1, bias=False),
+            spnn.SubmConv3d(input_channels, channels[0], 3, bias=False),
             norm_fn(channels[0]),
             spnn.ReLU()
         )
@@ -165,7 +165,7 @@ class VoxelResBackBone8xVoxelNeXtTS(nn.Module):
         )
 
         self.shared_conv = nn.Sequential(
-            spnn.Conv3d(out_channel, out_channel, kernel_size=(3,3,1), bias=True),
+            spnn.SubmConv3d(out_channel, out_channel, kernel_size=(3,3,1), bias=True),
             spnn.BatchNorm(out_channel),
             spnn.ReLU(),
         )

@@ -115,7 +115,15 @@ class TorchLatticeExportBuilder:
     ) -> ExportValue:
         """Lower one supported module against an explicit symbolic input."""
 
-        if isinstance(module, spnn.Conv3d):
+        if isinstance(
+            module,
+            (
+                spnn.Conv3d,
+                spnn.SubmConv3d,
+                spnn.ConvTranspose3d,
+                spnn.GenerativeConvTranspose3d,
+            ),
+        ):
             return self.conv3d(name, module, input)
         if isinstance(module, spnn.BatchNorm):
             return self.batch_norm(name, module, input)
@@ -173,30 +181,32 @@ class TorchLatticeExportBuilder:
             "result_type": sparse_type,
             "result": _safe_value_name(name),
         }
-        if module.transposed and module.generative:
+        if isinstance(module, spnn.GenerativeConvTranspose3d):
             out = self._builder.generative_conv_transpose3d(
                 **kwargs,
                 stride=_triple(module.stride),
             )
-        elif module.transposed:
+        elif isinstance(module, spnn.ConvTranspose3d):
             out = self._builder.conv_transpose3d(
                 **kwargs,
                 stride=_triple(module.stride),
                 padding=_triple(module.padding),
                 dilation=_triple(module.dilation),
             )
-        elif _triple(module.stride) == (1, 1, 1):
+        elif isinstance(module, spnn.SubmConv3d):
             out = self._builder.subm_conv3d(
                 **kwargs,
                 dilation=_triple(module.dilation),
             )
-        else:
+        elif isinstance(module, spnn.Conv3d):
             out = self._builder.conv3d(
                 **kwargs,
                 stride=_triple(module.stride),
                 padding=_triple(module.padding),
                 dilation=_triple(module.dilation),
             )
+        else:  # pragma: no cover - protected by lower_module dispatch.
+            raise TypeError(f"unsupported convolution module: {type(module).__name__}")
         return ExportValue(out, "sparse_tensor", module.out_channels)
 
     def batch_norm(

@@ -74,7 +74,7 @@ class UNetV2TS(nn.Module):
         norm_fn = partial(spnn.BatchNorm, eps=1e-3, momentum=0.01)
 
         self.conv_input = nn.Sequential(
-            spnn.Conv3d(input_channels, 16, 3, padding=1, bias=False),
+            spnn.SubmConv3d(input_channels, 16, 3, bias=False),
             norm_fn(16),
             spnn.ReLU(),
         )

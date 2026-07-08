@@ -110,7 +110,7 @@ class PartA2FCHeadTS(RoIHeadTemplate):
         if conv_type == 'tsconv':
             conv = spnn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False)
         elif conv_type == 'inverseconv':
-            conv = spnn.Conv3d(in_channels, out_channels, kernel_size, bias=False, transposed=True)
+            conv = spnn.ConvTranspose3d(in_channels, out_channels, kernel_size, bias=False)
         else:
             raise NotImplementedError
 

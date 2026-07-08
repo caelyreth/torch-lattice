@@ -11,11 +11,23 @@ from tqdm import tqdm
 
 import torch_lattice
 from torch_lattice import SparseTensor
-from torch_lattice.nn import Conv3d
+from torch_lattice.nn import (
+    Conv3d,
+    ConvTranspose3d,
+    GenerativeConvTranspose3d,
+    SubmConv3d,
+)
 from torch_lattice.utils import make_ntuple
 from torch_lattice.nn import functional as F
 
 __all__ = ["tune"]
+
+_TUNABLE_CONV_TYPES = (
+    Conv3d,
+    SubmConv3d,
+    ConvTranspose3d,
+    GenerativeConvTranspose3d,
+)
 
 
 _WGRAD_SPLIT_K_RANGE = (8, 16, 32, 64)
@@ -96,13 +108,13 @@ def clear_tensor_cache(inputs: SparseTensor):
 
 def clear_model_config(model: nn.Module):
     for name, module in model.named_modules():
-        if isinstance(module, Conv3d):
+        if isinstance(module, _TUNABLE_CONV_TYPES):
             module._config = F.conv_config.get_default_conv_config()
 
 
 def set_group_config(model: nn.Module, names: list, config: Dict):
     for name, module in model.named_modules():
-        if isinstance(module, Conv3d):
+        if isinstance(module, _TUNABLE_CONV_TYPES):
             if name in names:
                 module._config = config.copy()
 
@@ -442,7 +454,7 @@ def tune(
         handler_collection = []
         for name, module in model.named_modules():
             # register hook
-            if isinstance(module, Conv3d):
+            if isinstance(module, _TUNABLE_CONV_TYPES):
                 if len(module.kernel.data.shape) == 3:
                     _handler = module.register_forward_hook(
                         functools.partial(dump, name=name)
@@ -648,7 +660,7 @@ def tune(
 
     # modify the model
     for name, module in model.named_modules():
-        if isinstance(module, Conv3d):
+        if isinstance(module, _TUNABLE_CONV_TYPES):
             if name in name_to_group:
                 layer_group_idx = name_to_group[name]
                 if layer_group_idx in group_configs:

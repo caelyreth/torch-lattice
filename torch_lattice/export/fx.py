@@ -19,6 +19,9 @@ __all__ = ["LatticeExportInterpreter", "LatticeTracer", "lower_fx_module"]
 
 SUPPORTED_LEAF_MODULES = (
     spnn.Conv3d,
+    spnn.SubmConv3d,
+    spnn.ConvTranspose3d,
+    spnn.GenerativeConvTranspose3d,
     spnn.BatchNorm,
     spnn.InstanceNorm,
     spnn.GroupNorm,

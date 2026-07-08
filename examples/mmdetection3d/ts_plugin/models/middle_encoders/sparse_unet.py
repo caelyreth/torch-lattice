@@ -316,8 +316,7 @@ class SparseUNetTS(BaseModule):
                         stride=2,
                         norm_cfg=norm_cfg,
                         indice_key=f'spconv{block_num - i}',
-                        conv_type='TorchLatticeConv3d',
-                        transposed=True))
+                        conv_type='TorchLatticeConvTranspose3d'))
             else:
                 # use submanifold conv instead of inverse conv
                 # in the last block

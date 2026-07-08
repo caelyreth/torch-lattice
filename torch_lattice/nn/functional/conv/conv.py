@@ -18,6 +18,7 @@ def _make_kmap_cache_key(
     stride: Tuple[int, ...],
     padding: Tuple[int, ...],
     dilation: Tuple[int, ...],
+    subm: bool,
     config: Dict,
     training: bool,
 ) -> Tuple:
@@ -27,6 +28,7 @@ def _make_kmap_cache_key(
         stride,
         padding,
         dilation,
+        bool(subm),
         config.kmap_mode,
         config.downsample_mode,
         config.dataflow,
@@ -49,6 +51,7 @@ def conv3d(
     padding: Union[int, Tuple[int, ...]] = 0,
     dilation: Union[int, Tuple[int, ...]] = 1,
     config: Dict = None,
+    subm: bool = False,
     transposed: bool = False,
     generative: bool = False,
     training: bool = False,
@@ -61,6 +64,11 @@ def conv3d(
     stride = make_ntuple(stride, ndim=3)
     padding = make_ntuple(padding, ndim=3)
     dilation = make_ntuple(dilation, ndim=3)
+    if subm:
+        if transposed or generative:
+            raise ValueError("submanifold convolution cannot be transposed or generative.")
+        if stride != (1, 1, 1):
+            raise ValueError("submanifold convolution requires stride=1.")
 
     conv_mode = F.get_conv_mode()
     if config is None:
@@ -110,7 +118,7 @@ def conv3d(
         )
     elif not transposed:
         kmap_key = _make_kmap_cache_key(
-            input.stride, kernel_size, stride, padding, dilation, config, training
+            input.stride, kernel_size, stride, padding, dilation, subm, config, training
         )
         kmap = input._caches.kmaps.get(kmap_key)
 
@@ -144,6 +152,7 @@ def conv3d(
                 FOD_fusion=config.FOD_fusion,
                 IGEMM_center_only=config.get("IGEMM_center_only", False),
                 inference=inference_no_grad,
+                subm=subm,
             )
 
             hashmap = [kmap["hashmap_keys"], kmap["hashmap_vals"]]
@@ -183,6 +192,7 @@ def conv3d(
                     stride,
                     padding,
                     dilation,
+                    False,
                     config,
                     training,
                 )
@@ -234,6 +244,7 @@ def conv3d(
                 FOD_fusion=config.FOD_fusion,
                 IGEMM_center_only=config.get("IGEMM_center_only", False),
                 inference=inference_no_grad,
+                subm=False,
             )
             # generate output: logically forced to be not transposed
             feats = ConvolutionFunction.apply(

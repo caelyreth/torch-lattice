@@ -600,7 +600,7 @@ def test_subm_implicit_gemm_prunes_impossible_thin_shape_offsets():
         coords,
         spatial_range=(1, points, 1, 1),
     )
-    out = F.conv3d(x, weight, 3, padding=1, config=config, training=True)
+    out = F.conv3d(x, weight, 3, padding=1, config=config, training=True, subm=True)
     kmap = next(iter(x._caches.kmaps.values()))
     assert kmap["out_in_map"].shape[1] == 3
     assert kmap["active_kernel_offsets"].detach().cpu().tolist() == [12, 13, 14]
@@ -614,6 +614,7 @@ def test_subm_implicit_gemm_prunes_impossible_thin_shape_offsets():
         padding=1,
         config=config.copy(),
         training=True,
+        subm=True,
     )
     grad = torch.randn_like(out.feats)
     out.feats.backward(grad)
@@ -872,6 +873,7 @@ def test_non_igemm_no_grad_compact_kmap_matches_full_weight_reference(
         3,
         padding=1,
         config=config.copy(),
+        subm=True,
     )
     ref = F.conv3d(
         torch_lattice.SparseTensor(
@@ -883,6 +885,7 @@ def test_non_igemm_no_grad_compact_kmap_matches_full_weight_reference(
         3,
         padding=1,
         config=config.copy(),
+        subm=True,
     )
 
     torch.testing.assert_close(compact.coords, ref.coords)

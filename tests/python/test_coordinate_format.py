@@ -152,7 +152,7 @@ def test_compact_on_the_fly_kmap_uses_int32_hashmap():
     tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
 
     try:
-        spnn.Conv3d(4, 4, kernel_size=3, bias=False).cuda().half()(tensor)
+        spnn.SubmConv3d(4, 4, kernel_size=3, bias=False).cuda().half()(tensor)
         hashmap_keys, _ = tensor._caches.hashmaps[(1, 1, 1)]
     finally:
         F.conv_config.clear_global_conv_config()
@@ -213,7 +213,7 @@ def test_fetch_on_demand_fused_falls_back_for_large_quantified_map():
     tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 64, 64, 64))
 
     try:
-        out = spnn.Conv3d(32, 32, kernel_size=3, bias=False).cuda().half()(tensor)
+        out = spnn.SubmConv3d(32, 32, kernel_size=3, bias=False).cuda().half()(tensor)
         torch.cuda.synchronize()
     finally:
         F.conv_config.clear_global_conv_config()
@@ -229,7 +229,7 @@ def test_kernel_map_cache_is_separated_by_dataflow():
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
     tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
-    conv = spnn.Conv3d(4, 4, kernel_size=3, bias=False).cuda().half()
+    conv = spnn.SubmConv3d(4, 4, kernel_size=3, bias=False).cuda().half()
 
     config = F.conv_config.get_default_conv_config().copy()
     config.kmap_mode = "hashmap_on_the_fly"
@@ -258,7 +258,7 @@ def test_fetch_on_demand_fusion_flag_controls_quantified_kmap_metadata():
         device="cuda",
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
-    conv = spnn.Conv3d(4, 4, kernel_size=3, bias=False).cuda().half()
+    conv = spnn.SubmConv3d(4, 4, kernel_size=3, bias=False).cuda().half()
     config = F.conv_config.get_default_conv_config().copy()
     config.dataflow = F.Dataflow.FetchOnDemand
     config.kmap_mode = "hashmap_on_the_fly"

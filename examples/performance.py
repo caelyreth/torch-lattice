@@ -42,14 +42,14 @@ def generate_batched_random_point_clouds(size=100000, voxel_size=0.2, batch_size
 
 def dummy_train_3x3(device):
     model = nn.Sequential(
-        spnn.Conv3d(4, 32, kernel_size=3, stride=1),
-        spnn.Conv3d(32, 64, kernel_size=3, stride=1),
-        spnn.Conv3d(64, 128, kernel_size=3, stride=1),
-        spnn.Conv3d(128, 256, kernel_size=3, stride=1),
-        spnn.Conv3d(256, 128, kernel_size=3, stride=1, transposed=True),
-        spnn.Conv3d(128, 64, kernel_size=3, stride=1, transposed=True),
-        spnn.Conv3d(64, 32, kernel_size=3, stride=1, transposed=True),
-        spnn.Conv3d(32, 10, kernel_size=3, stride=1, transposed=True),
+        spnn.SubmConv3d(4, 32, kernel_size=3),
+        spnn.SubmConv3d(32, 64, kernel_size=3),
+        spnn.SubmConv3d(64, 128, kernel_size=3),
+        spnn.SubmConv3d(128, 256, kernel_size=3),
+        spnn.ConvTranspose3d(256, 128, kernel_size=3, stride=1),
+        spnn.ConvTranspose3d(128, 64, kernel_size=3, stride=1),
+        spnn.ConvTranspose3d(64, 32, kernel_size=3, stride=1),
+        spnn.ConvTranspose3d(32, 10, kernel_size=3, stride=1),
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss().to(device)
@@ -77,14 +77,14 @@ def dummy_train_3x3(device):
 
 def dummy_train_3x1(device):
     model = nn.Sequential(
-        spnn.Conv3d(4, 32, kernel_size=(3, 1, 3), stride=1),
-        spnn.Conv3d(32, 64, kernel_size=(1, 3, 3), stride=1),
-        spnn.Conv3d(64, 128, kernel_size=(3, 1, 3), stride=1),
-        spnn.Conv3d(128, 256, kernel_size=(1, 3, 3), stride=1),
-        spnn.Conv3d(256, 128, kernel_size=(3, 1, 3), stride=1, transposed=True),
-        spnn.Conv3d(128, 64, kernel_size=(1, 3, 3), stride=1, transposed=True),
-        spnn.Conv3d(64, 32, kernel_size=(3, 1, 3), stride=1, transposed=True),
-        spnn.Conv3d(32, 10, kernel_size=(1, 3, 3), stride=1, transposed=True),
+        spnn.SubmConv3d(4, 32, kernel_size=(3, 1, 3)),
+        spnn.SubmConv3d(32, 64, kernel_size=(1, 3, 3)),
+        spnn.SubmConv3d(64, 128, kernel_size=(3, 1, 3)),
+        spnn.SubmConv3d(128, 256, kernel_size=(1, 3, 3)),
+        spnn.ConvTranspose3d(256, 128, kernel_size=(3, 1, 3), stride=1),
+        spnn.ConvTranspose3d(128, 64, kernel_size=(1, 3, 3), stride=1),
+        spnn.ConvTranspose3d(64, 32, kernel_size=(3, 1, 3), stride=1),
+        spnn.ConvTranspose3d(32, 10, kernel_size=(1, 3, 3), stride=1),
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss().to(device)

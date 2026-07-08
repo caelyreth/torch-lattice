@@ -15,7 +15,7 @@ def post_act_block_ts(in_channels, out_channels, kernel_size, indice_key=None, s
     if conv_type == 'tsconv':
         conv = spnn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False)
     elif conv_type == 'inverseconv':
-        conv = spnn.Conv3d(in_channels, out_channels, kernel_size,  stride=stride, bias=False, transposed=True) 
+        conv = spnn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, bias=False)
     else:
         raise NotImplementedError
 
@@ -37,7 +37,7 @@ class VoxelBackBone8xTS(nn.Module):
         self.sparse_shape = grid_size[::-1] + [1, 0, 0]
 
         self.conv_input = nn.Sequential(
-            spnn.Conv3d(input_channels, 16, 3, padding=1, bias=False),
+            spnn.SubmConv3d(input_channels, 16, 3, bias=False),
             spnn.BatchNorm(16),
             spnn.ReLU(),
         )

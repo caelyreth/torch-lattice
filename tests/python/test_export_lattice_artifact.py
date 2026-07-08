@@ -69,7 +69,8 @@ def test_export_fx_tiny_sparse_pool_linear_artifact(tmp_path):
     assert 'lattice.input_names = ["coords", "features", "active"]' in graph
     assert 'lattice.output_names = ["output"]' in graph
     assert "lattice.sparse.make" in graph
-    assert "lattice.subm_conv3d" in graph
+    assert "lattice.conv3d" in graph
+    assert "lattice.subm_conv3d" not in graph
     assert "lattice.activation" in graph
     assert "lattice.global_pool" in graph
     assert "lattice.linear" in graph
@@ -113,6 +114,29 @@ def test_export_fx_branch_cat_artifact(tmp_path):
     assert "join = #lattice.join<inner>" in graph
     assert weights["left.weight"].shape == (3, 1, 1, 1, 2)
     assert weights["right.weight"].shape == (4, 1, 1, 1, 2)
+
+
+@pytest.mark.parametrize(
+    ("module", "expected_op"),
+    [
+        (spnn.Conv3d(2, 3, kernel_size=1, bias=False), "lattice.conv3d"),
+        (spnn.SubmConv3d(2, 3, kernel_size=3, bias=False), "lattice.subm_conv3d"),
+        (spnn.ConvTranspose3d(2, 3, kernel_size=2, stride=2, bias=False), "lattice.conv_transpose3d"),
+        (
+            spnn.GenerativeConvTranspose3d(2, 3, kernel_size=2, stride=2, bias=False),
+            "lattice.generative_conv_transpose3d",
+        ),
+    ],
+)
+def test_export_conv3d_module_identity_selects_mlir_op(tmp_path, module, expected_op):
+    report = export_lattice_artifact(
+        module.eval(),
+        tmp_path / "identity.lattice",
+        options=LatticeExportOptions(batch_size=2),
+    )
+    graph = report.graph_path.read_text(encoding="utf-8")
+
+    assert expected_op in graph
 
 
 def test_export_conv3d_weight_layout(tmp_path):

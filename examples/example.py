@@ -63,16 +63,16 @@ if __name__ == "__main__":
     )
 
     model = nn.Sequential(
-        spnn.Conv3d(4, 32, 3),
+        spnn.SubmConv3d(4, 32, 3),
         spnn.BatchNorm(32),
         spnn.ReLU(True),
         spnn.Conv3d(32, 64, 2, stride=2),
         spnn.BatchNorm(64),
         spnn.ReLU(True),
-        spnn.Conv3d(64, 64, 2, stride=2, transposed=True),
+        spnn.ConvTranspose3d(64, 64, 2, stride=2),
         spnn.BatchNorm(64),
         spnn.ReLU(True),
-        spnn.Conv3d(64, 32, 3),
+        spnn.SubmConv3d(64, 32, 3),
         spnn.BatchNorm(32),
         spnn.ReLU(True),
         spnn.Conv3d(32, 10, 1),

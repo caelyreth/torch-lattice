@@ -32,10 +32,10 @@ class SparseResUNet(nn.Module):
         num_channels = [int(width_multiplier * nc) for nc in num_channels]
 
         self.stem = nn.Sequential(
-            spnn.Conv3d(in_channels, num_channels[0], 3),
+            spnn.SubmConv3d(in_channels, num_channels[0], 3),
             spnn.BatchNorm(num_channels[0]),
             spnn.ReLU(True),
-            spnn.Conv3d(num_channels[0], num_channels[0], 3),
+            spnn.SubmConv3d(num_channels[0], num_channels[0], 3),
             spnn.BatchNorm(num_channels[0]),
             spnn.ReLU(True),
         )
