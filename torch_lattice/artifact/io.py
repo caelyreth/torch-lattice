@@ -25,21 +25,21 @@ from .builder import TorchLatticeArtifactBuilder
 from .fx import lower_fx_artifact
 
 __all__ = [
-    "LatticeArtifact",
-    "LatticeArtifactError",
-    "LatticeArtifactOptions",
-    "save_lattice_artifact",
+    "LatticeArtifactSaveResult",
+    "LatticeModelArtifactError",
+    "LatticeModelArtifactOptions",
+    "save_lattice_model_artifact",
 ]
 
 ArtifactMethod = Literal["fx", "explicit"]
 
 
-class LatticeArtifactError(ValueError):
+class LatticeModelArtifactError(ValueError):
     pass
 
 
 @dataclass(frozen=True)
-class LatticeArtifactOptions:
+class LatticeModelArtifactOptions:
     """Options for producing a portable lattice MLIR artifact."""
 
     input_dtype: str = "f32"
@@ -53,7 +53,7 @@ class LatticeArtifactOptions:
 
 
 @dataclass(frozen=True)
-class LatticeArtifact:
+class LatticeArtifactSaveResult:
     """Result of exporting a Torch model to a lattice artifact directory."""
 
     artifact_dir: Path
@@ -62,16 +62,16 @@ class LatticeArtifact:
     weight_keys: tuple[str, ...]
 
 
-def save_lattice_artifact(
+def save_lattice_model_artifact(
     model: nn.Module,
     artifact_dir: str | Path,
     *,
     input_name: str = "input",
     output_name: str = "output",
     sample_input: SparseTensor | None = None,
-    options: LatticeArtifactOptions | None = None,
+    options: LatticeModelArtifactOptions | None = None,
     method: ArtifactMethod = "fx",
-) -> LatticeArtifact:
+) -> LatticeArtifactSaveResult:
     """Save ``model`` as ``graph.mlir`` plus ``weights.safetensors``.
 
     ``torch.fx`` is the default front-end. For explicit construction use
@@ -79,8 +79,8 @@ def save_lattice_artifact(
     """
 
     if method != "fx":
-        raise LatticeArtifactError(
-            "save_lattice_artifact currently accepts method='fx'; use "
+        raise LatticeModelArtifactError(
+            "save_lattice_model_artifact currently accepts method='fx'; use "
             "TorchLatticeArtifactBuilder for explicit graph construction."
         )
 
@@ -109,7 +109,7 @@ def _save_artifact(
     weights: dict[str, torch.Tensor],
     *,
     clean: bool,
-) -> LatticeArtifact:
+) -> LatticeArtifactSaveResult:
     artifact_path = Path(artifact_dir)
     if artifact_path.exists() and clean:
         shutil.rmtree(artifact_path)
@@ -125,7 +125,7 @@ def _save_artifact(
         metadata={"format": "torch"},
     )
 
-    return LatticeArtifact(
+    return LatticeArtifactSaveResult(
         artifact_dir=artifact_path,
         graph_path=graph_path,
         weights_path=weights_path,
@@ -134,10 +134,10 @@ def _save_artifact(
 
 
 def _options_with_sample_defaults(
-    options: LatticeArtifactOptions | None,
+    options: LatticeModelArtifactOptions | None,
     sample_input: SparseTensor | None,
-) -> LatticeArtifactOptions:
-    options = options or LatticeArtifactOptions()
+) -> LatticeModelArtifactOptions:
+    options = options or LatticeModelArtifactOptions()
     dtype = options.input_dtype
     batch_size = options.batch_size
     if sample_input is None:
@@ -147,7 +147,7 @@ def _options_with_sample_defaults(
     if batch_size is None:
         batch_size = _batch_size_from_sample(sample_input)
     input_stride = tuple(int(value) for value in sample_input.stride)
-    return LatticeArtifactOptions(
+    return LatticeModelArtifactOptions(
         input_dtype=dtype,
         batch_size=batch_size,
         input_stride=input_stride,
@@ -164,7 +164,7 @@ def _torch_dtype_name(dtype: torch.dtype) -> str:
         return "f16"
     if dtype == torch.float32:
         return "f32"
-    raise LatticeArtifactError(f"unsupported sparse feature dtype: {dtype}")
+    raise LatticeModelArtifactError(f"unsupported sparse feature dtype: {dtype}")
 
 
 def _batch_size_from_sample(sample_input: SparseTensor) -> int:

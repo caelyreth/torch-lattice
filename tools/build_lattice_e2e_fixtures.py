@@ -14,9 +14,9 @@ import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
 from torch_lattice.artifact import (
-    LatticeArtifactOptions,
+    LatticeModelArtifactOptions,
     TorchLatticeArtifactBuilder,
-    save_lattice_artifact,
+    save_lattice_model_artifact,
     lower_fx_artifact,
 )
 from torch_lattice.nn.functional.conv import Dataflow, conv_config
@@ -181,11 +181,11 @@ def _sparse_classifier(case_dir: Path) -> None:
         optimizer.step()
     model.eval()
     expected = model(x).detach()
-    save_lattice_artifact(
+    save_lattice_model_artifact(
         model,
         case_dir,
         sample_input=x,
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     _save_sparse_inputs(case_dir, '', x)
     save_file({'output': expected}, case_dir / 'expected.safetensors')
@@ -212,11 +212,11 @@ def _quantized_classifier(case_dir: Path, *, bits: int) -> None:
         )
         model.head.bias.copy_(torch.tensor([0.01, -0.02]))
     expected = model(x).detach()
-    save_lattice_artifact(
+    save_lattice_model_artifact(
         model,
         case_dir,
         sample_input=x,
-        options=LatticeArtifactOptions(
+        options=LatticeModelArtifactOptions(
             batch_size=2,
             quantize_bits=bits,
             quantize_group_size=32,
@@ -313,7 +313,7 @@ def _transpose_convolution(case_dir: Path) -> None:
     model, x_eval = _cuda_eval_pair(model, x)
     with _conv_dataflow(Dataflow.GatherScatter):
         expected = model(x_eval).cpu()
-        save_lattice_artifact(model, case_dir, sample_input=x)
+        save_lattice_model_artifact(model, case_dir, sample_input=x)
     _save_sparse_inputs(case_dir, '', x)
     _save_sparse_expected(case_dir, expected)
 
@@ -328,7 +328,7 @@ def _generative_transpose_convolution(case_dir: Path) -> None:
         stride=(2, 1, 1),
     )
     expected = _generative_transpose_reference(model, x)
-    save_lattice_artifact(model, case_dir, sample_input=x)
+    save_lattice_model_artifact(model, case_dir, sample_input=x)
     _save_sparse_inputs(case_dir, '', x)
     _save_sparse_expected(case_dir, expected)
 

@@ -8,7 +8,7 @@ from torch import nn
 
 import torch_lattice
 from torch_lattice import nn as spnn
-from torch_lattice.artifact import save_lattice_artifact
+from torch_lattice.artifact import save_lattice_model_artifact
 
 
 def main() -> None:
@@ -38,7 +38,7 @@ def main() -> None:
     )
 
     artifact_dir = Path("artifacts/tiny_sparse_pool_linear.lattice")
-    report = save_lattice_artifact(model, artifact_dir, sample_input=sample)
+    report = save_lattice_model_artifact(model, artifact_dir, sample_input=sample)
     with torch.no_grad():
         expected = model(sample)
     save_file(

@@ -9,9 +9,9 @@ import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
 from torch_lattice.artifact import (
-    LatticeArtifactOptions,
+    LatticeModelArtifactOptions,
     TorchLatticeArtifactBuilder,
-    save_lattice_artifact,
+    save_lattice_model_artifact,
     lower_fx_artifact,
 )
 
@@ -138,10 +138,10 @@ def test_artifact_voxelize_and_devoxelize_mlir():
 
 def test_quantized_artifact_stores_packed_weights(tmp_path):
     model = nn.Sequential(spnn.Conv3d(2, 3, kernel_size=1, bias=False)).eval()
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         model,
         tmp_path,
-        options=LatticeArtifactOptions(quantize_bits=8, quantize_group_size=32),
+        options=LatticeModelArtifactOptions(quantize_bits=8, quantize_group_size=32),
     )
     graph = report.graph_path.read_text()
     weights = load_file(report.weights_path)
@@ -215,7 +215,7 @@ def test_artifact_sparse_crop_reports_missing_dialect_op(tmp_path):
         spnn.SparseCrop(coords_min=(0, 0, 0), coords_max=(2, 2, 2)),
     ).eval()
     with pytest.raises(ValueError, match="sparse crop op"):
-        save_lattice_artifact(model, tmp_path)
+        save_lattice_model_artifact(model, tmp_path)
 
 
 def test_artifact_dense_head_dropout_flatten_identity_mlir():
@@ -237,8 +237,8 @@ def test_artifact_dense_head_dropout_flatten_identity_mlir():
 def test_artifact_training_dropout_rejected(tmp_path):
     model = nn.Sequential(spnn.GlobalAvgPool(), nn.Dropout(p=0.5), nn.Linear(2, 2))
     with pytest.raises(ValueError, match="eval mode"):
-        save_lattice_artifact(
+        save_lattice_model_artifact(
             model,
             tmp_path,
-            options=LatticeArtifactOptions(batch_size=1),
+            options=LatticeModelArtifactOptions(batch_size=1),
         )

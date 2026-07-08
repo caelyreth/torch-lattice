@@ -9,9 +9,9 @@ import torch_lattice
 from lattice_contract import DIALECT_SCHEMA_DIGEST
 from torch_lattice import nn as spnn
 from torch_lattice.artifact import (
-    LatticeArtifactOptions,
+    LatticeModelArtifactOptions,
     TorchLatticeArtifactBuilder,
-    save_lattice_artifact,
+    save_lattice_model_artifact,
 )
 
 
@@ -80,7 +80,7 @@ def test_artifact_fx_tiny_sparse_pool_linear_artifact(tmp_path):
     model = TinySparseModel().eval()
     sample = _sample_sparse_tensor()
 
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         model,
         tmp_path / "tiny_sparse.lattice",
         sample_input=sample,
@@ -113,10 +113,10 @@ def test_artifact_fx_tiny_sparse_pool_linear_artifact(tmp_path):
 def test_artifact_fx_branch_add_artifact(tmp_path):
     model = SkipAddSparseModel().eval()
 
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         model,
         tmp_path / "skip_add.lattice",
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -129,10 +129,10 @@ def test_artifact_fx_branch_add_artifact(tmp_path):
 def test_artifact_fx_branch_cat_artifact(tmp_path):
     model = CatSparseModel().eval()
 
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         model,
         tmp_path / "cat.lattice",
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
     weights = load_file(report.weights_path)
@@ -148,10 +148,10 @@ def test_artifact_fx_branch_cat_artifact(tmp_path):
 def test_artifact_fx_sparse_binary_join_and_fill_artifact(tmp_path):
     model = BinarySparseModel().eval()
 
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         model,
         tmp_path / "binary.lattice",
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -165,10 +165,10 @@ def test_artifact_fx_sparse_binary_join_and_fill_artifact(tmp_path):
 def test_artifact_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
     model = MulSparseModel().eval()
 
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         model,
         tmp_path / "mul.lattice",
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -190,10 +190,10 @@ def test_artifact_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
     ],
 )
 def test_artifact_conv3d_module_identity_selects_mlir_op(tmp_path, module, expected_op):
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         module.eval(),
         tmp_path / "identity.lattice",
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     graph = report.graph_path.read_text(encoding="utf-8")
 
@@ -205,10 +205,10 @@ def test_artifact_conv3d_weight_layout(tmp_path):
     with torch.no_grad():
         conv.kernel.copy_(torch.arange(conv.kernel.numel()).reshape_as(conv.kernel))
 
-    report = save_lattice_artifact(
+    report = save_lattice_model_artifact(
         conv,
         tmp_path / "conv.lattice",
-        options=LatticeArtifactOptions(batch_size=2),
+        options=LatticeModelArtifactOptions(batch_size=2),
     )
     weights = load_file(report.weights_path)
 
@@ -241,10 +241,10 @@ def test_artifact_rejects_norms_without_mlx_mlir_semantics(tmp_path, module):
     model = nn.Sequential(spnn.Conv3d(2, 3, kernel_size=1), module).eval()
 
     with pytest.raises(ValueError, match="not supported"):
-        save_lattice_artifact(
+        save_lattice_model_artifact(
             model,
             tmp_path / "unsupported.lattice",
-            options=LatticeArtifactOptions(batch_size=2),
+            options=LatticeModelArtifactOptions(batch_size=2),
         )
 
 
