@@ -173,15 +173,12 @@ class LatticeExportInterpreter(fx.Interpreter):
         )
 
     def _voxelize(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> ExportValue:
-        values = _export_values(args, kwargs)
-        if len(values) < 4:
-            raise ValueError("voxelize export requires points, features, batch_indices, and active_rows values.")
         return self.builder.voxelize(
             _current_node_name(self, "voxelize"),
-            points=values[0],
-            features=values[1],
-            batch_indices=values[2],
-            active_rows=values[3],
+            points=_export_arg(args, kwargs, 0, "points", context="voxelize"),
+            features=_export_arg(args, kwargs, 1, "features", context="voxelize"),
+            batch_indices=_export_arg(args, kwargs, 2, "batch_indices", context="voxelize"),
+            active_rows=_export_arg(args, kwargs, 3, "active_rows", context="voxelize"),
             voxel_size=kwargs.get("voxel_size", 1.0),
             origin=kwargs.get("origin", 0.0),
             reduction=kwargs.get("reduction", "mean"),
@@ -189,15 +186,12 @@ class LatticeExportInterpreter(fx.Interpreter):
         )
 
     def _devoxelize(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> ExportValue:
-        values = _export_values(args, kwargs)
-        if len(values) < 4:
-            raise ValueError("devoxelize export requires points, voxels, batch_indices, and point_active_rows values.")
         return self.builder.devoxelize(
             _current_node_name(self, "devoxelize"),
-            points=values[0],
-            voxels=values[1],
-            batch_indices=values[2],
-            point_active_rows=values[3],
+            points=_export_arg(args, kwargs, 0, "points", context="devoxelize"),
+            voxels=_export_arg(args, kwargs, 1, "voxels", context="devoxelize"),
+            batch_indices=_export_arg(args, kwargs, 2, "batch_indices", context="devoxelize"),
+            point_active_rows=_export_arg(args, kwargs, 3, "point_active_rows", context="devoxelize"),
             voxel_size=kwargs.get("voxel_size", 1.0),
             origin=kwargs.get("origin", 0.0),
             interpolation=kwargs.get("interpolation", "nearest"),
@@ -220,6 +214,20 @@ def lower_fx_module(
     result = LatticeExportInterpreter(graph_module, builder).run(*run_inputs)
     builder.output(_single_output_value(result))
     return builder
+
+
+def _export_arg(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    position: int,
+    name: str,
+    *,
+    context: str,
+) -> ExportValue:
+    value = kwargs.get(name, args[position] if position < len(args) else None)
+    if not isinstance(value, ExportValue):
+        raise ValueError(f"{context} export requires symbolic argument '{name}'.")
+    return value
 
 
 def _default_join(op: str) -> str:

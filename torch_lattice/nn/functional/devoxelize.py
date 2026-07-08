@@ -125,7 +125,7 @@ def devoxelize(
     origin = _float_triple(origin, device=points.device)
     normalized = (points - origin) / voxel_size
     if interpolation == "nearest":
-        nearest = torch.floor(normalized).to(torch.int64)
+        nearest = torch.floor(normalized + 0.5).to(torch.int64)
         indices = _lookup_indices(voxels.coords, batch_indices, nearest)
         return _gather_or_zero(voxels.feats, indices)
     return _linear_devoxelize(normalized, voxels, batch_indices)

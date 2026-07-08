@@ -52,6 +52,7 @@ class TorchLatticeExportBuilder:
         quantize_bits: int | None = None,
         quantize_group_size: int = 32,
         quantize_scale_dtype: str = "f16",
+        create_default_input: bool = True,
     ) -> None:
         if quantize_bits is not None and quantize_bits not in (4, 8):
             raise ValueError("quantize_bits must be None, 4, or 8.")
@@ -64,11 +65,13 @@ class TorchLatticeExportBuilder:
         self.quantize_scale_dtype = quantize_scale_dtype
         self._builder = MLIRModuleBuilder()
         self._weights: dict[str, torch.Tensor] = {}
-        self._value = self.sparse_input()
+        self._value = self.sparse_input() if create_default_input else None
         self._finalized = False
 
     @property
     def current(self) -> ExportValue:
+        if self._value is None:
+            raise ValueError("builder has no current value; pass explicit inputs or create a default sparse input.")
         return self._value
 
     @property
@@ -102,6 +105,47 @@ class TorchLatticeExportBuilder:
             result=self.input_name,
         )
         return ExportValue(value=value, kind="sparse_tensor", channels=None)
+
+    def sparse_argument(
+        self,
+        name: str,
+        *,
+        dtype: str | None = None,
+        channels: int | None = None,
+        stride=(1, 1, 1),
+    ) -> ExportValue:
+        safe = _safe_value_name(name)
+        dtype = dtype or self.input_dtype
+        coords = self._builder.argument(
+            f"{safe}_coords",
+            TensorType("tensor<?x4xi32>"),
+            role="sparse_coords",
+        )
+        features = self._builder.argument(
+            f"{safe}_features",
+            TensorType(
+                f"tensor<?x{int(channels)}x{dtype}>"
+                if channels is not None
+                else f"tensor<?x?x{dtype}>"
+            ),
+            role="sparse_features",
+        )
+        active = self._builder.argument(
+            f"{safe}_active",
+            TensorType("tensor<1xi32>"),
+            role="sparse_active",
+        )
+        sparse_type = SparseTensorType(dtype=dtype)
+        value = self._builder.sparse_make(
+            coords=coords,
+            features=features,
+            active=active,
+            stride=_triple(stride),
+            coord_order="batch_x_y_z",
+            result_type=sparse_type,
+            result=safe,
+        )
+        return ExportValue(value=value, kind="sparse_tensor", channels=channels)
 
     def dense_argument(
         self,
@@ -479,7 +523,7 @@ class TorchLatticeExportBuilder:
         return ExportValue(out, "sparse_tensor", channels)
 
     def output(self, value: ExportValue | None = None, *, name: str | None = None) -> None:
-        value = value or self._value
+        value = value or self.current
         role = "sparse_tensor" if value.kind == "sparse_tensor" else "tensor"
         self._builder.return_(value.value, names=(name or self.output_name,), roles=(role,))
         self._finalized = True
@@ -496,7 +540,9 @@ class TorchLatticeExportBuilder:
         return _save_artifact(artifact_dir, self.to_mlir(), self._weights, clean=clean)
 
     def _current_or(self, value: ExportValue | None) -> ExportValue:
-        return self._value if value is None else value
+        if value is not None:
+            return value
+        return self.current
 
     def _sparse_features(self, name: str, value: ExportValue):
         self._require_sparse_name(value, name)
