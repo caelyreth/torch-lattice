@@ -216,3 +216,29 @@ def test_export_sparse_crop_reports_missing_dialect_op(tmp_path):
     ).eval()
     with pytest.raises(ValueError, match="sparse crop op"):
         export_lattice_artifact(model, tmp_path)
+
+
+def test_export_dense_head_dropout_flatten_identity_mlir():
+    model = nn.Sequential(
+        spnn.GlobalAvgPool(),
+        nn.Dropout(p=0.5),
+        nn.Flatten(start_dim=1),
+        nn.Linear(2, 2),
+    ).eval()
+    builder = TorchLatticeExportBuilder(input_dtype="f32", batch_size=1)
+    lower_fx_module(builder, model)
+    graph = builder.to_mlir()
+    assert "lattice.global_pool" in graph
+    assert "lattice.linear" in graph
+    assert "dropout" not in graph.lower()
+    assert "flatten" not in graph.lower()
+
+
+def test_export_training_dropout_rejected(tmp_path):
+    model = nn.Sequential(spnn.GlobalAvgPool(), nn.Dropout(p=0.5), nn.Linear(2, 2))
+    with pytest.raises(ValueError, match="eval mode"):
+        export_lattice_artifact(
+            model,
+            tmp_path,
+            options=LatticeExportOptions(batch_size=1),
+        )

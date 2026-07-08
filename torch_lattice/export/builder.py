@@ -208,6 +208,14 @@ class TorchLatticeExportBuilder:
             return self.global_pool(name, "max", input)
         if isinstance(module, nn.Linear):
             return self.linear(name, module, input)
+        if isinstance(module, nn.Dropout):
+            if module.training:
+                raise ValueError("Dropout export is only supported in eval mode.")
+            return input
+        if isinstance(module, nn.Flatten):
+            if input.kind != "dense_tensor" or module.start_dim != 1 or module.end_dim != -1:
+                raise ValueError("Flatten export only supports dense classifier heads with start_dim=1 and end_dim=-1.")
+            return input
         if isinstance(module, nn.Identity):
             return input
         raise ValueError(f"unsupported module for lattice export: {type(module).__name__}")

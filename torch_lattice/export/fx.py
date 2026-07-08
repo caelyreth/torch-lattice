@@ -41,6 +41,8 @@ SUPPORTED_LEAF_MODULES = (
     spnn.GlobalAvgPool,
     spnn.GlobalMaxPool,
     nn.Linear,
+    nn.Dropout,
+    nn.Flatten,
     nn.LayerNorm,
     nn.RMSNorm,
     nn.ReLU,
