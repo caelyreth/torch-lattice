@@ -36,25 +36,25 @@ Navigation map
      - :doc:`reference/tooling/cuda-ci`
    * - Build a sparse tensor
      - :doc:`reference/concepts/sparse-tensor`
-     - :doc:`api/core`
+     - :doc:`api/core/index`
    * - Write a sparse model
      - :doc:`getting-started/quickstart`
-     - :doc:`api/nn`
+     - :doc:`api/nn/index`
    * - Export an artifact
      - :doc:`reference/concepts/artifacts`
-     - :doc:`api/artifact`
+     - :doc:`api/artifact/index`
    * - Reason about convolution
      - :doc:`reference/concepts/convolution-semantics`
-     - :doc:`api/nn`
+     - :doc:`api/nn/index`
    * - Migrate TorchSparse code
      - :doc:`reference/concepts/migration`
      - :doc:`project/compatibility`
    * - Run CUDA benchmarks
      - :doc:`reference/tooling/benchmarks`
-     - :doc:`api/tooling`
+     - :doc:`api/tooling/index`
    * - Generate/replay conformance cases
      - :doc:`reference/tooling/conformance`
-     - :doc:`api/tooling`
+     - :doc:`api/tooling/index`
 
 .. note::
 
