@@ -22,3 +22,50 @@ semantics from stride, padding, or legacy indice-key conventions.
 
 Credit: this project is based on MIT Han Lab's original
 [TorchSparse](https://github.com/mit-han-lab/torchsparse) project.
+
+### Migration compatibility checks
+
+Original TorchSparse and `torch-lattice` are not assumed to have identical class
+semantics. The supported migration rule is explicit:
+
+- original `torchsparse.nn.Conv3d(kernel_size > 1, stride = 1)` maps to
+  `torch_lattice.nn.SubmConv3d`;
+- original pointwise `Conv3d(kernel_size = 1)` maps to `torch_lattice.nn.Conv3d`;
+- original strided forward convolutions map to `torch_lattice.nn.Conv3d` with the
+  same stride;
+- branch, cat, global pool, batch norm, and pointwise feature chains must match
+  exactly for the covered inference subset.
+
+Use the permanent compatibility tool to verify the mapped subset against the
+kept original TorchSparse worktree/package. It runs both native packages in
+separate subprocesses because their extensions register overlapping native type
+names:
+
+```bash
+python tools/check_torchsparse_migration_compat.py all \
+  --cases 70 \
+  --seed 20260709 \
+  --device cuda \
+  --output /tmp/torch_lattice_torchsparse_compat
+```
+
+### CUDA-to-MLX artifact conformance
+
+Fuzz fixtures are CUDA provenance data for the MLX artifact runtime. Each case
+contains `graph.mlir`, `weights.safetensors`, exact inputs, expected outputs,
+and tolerances. Quantized fixture expected outputs are generated from the
+artifact-packed/dequantized weight contract, not from the pre-quantized dense
+training weights.
+
+Generate an archive for MLX-side replay with:
+
+```bash
+python tools/build_lattice_fuzz_fixtures.py \
+  --cases 32 \
+  --seed 20260709 \
+  --train-steps 4 \
+  --families all \
+  --device cuda \
+  --output /tmp/torch_lattice_fuzz \
+  --archive /tmp/torch_lattice_fuzz.tar.gz
+```
