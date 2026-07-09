@@ -21,7 +21,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/caelyreth/torch-lattice"
-Documentation = "https://github.com/caelyreth/torch-lattice/tree/main/docs"
+Documentation = "https://torch-lattice.iki.moe"
 Source = "https://github.com/caelyreth/torch-lattice"
 Issues = "https://github.com/caelyreth/torch-lattice/issues"
 

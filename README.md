@@ -9,17 +9,30 @@ portable lattice MLIR artifacts for MLX/Metal deployment.
 semantics are aligned to `mlx-lattice` and the lattice MLIR contract rather than
 to historical TorchSparse API quirks.
 
-[MLX Lattice](https://github.com/caelyreth/mlx-lattice) | [Acknowledgements](#acknowledgements)
+[Documentation](https://torch-lattice.iki.moe)
+| [MLX Lattice](https://github.com/caelyreth/mlx-lattice)
+| [PyPI](https://pypi.org/project/torch-lattice/)
+| [Acknowledgements](#acknowledgements)
 
 ### Install
 
-`torch-lattice` currently targets Python 3.14, PyTorch CUDA 12.8 wheels, and a
-CUDA 12.8 runtime/build environment. After the package is published, install the
-CUDA wheel with:
+For normal use, install the published package from PyPI:
+
+```bash
+uv add torch-lattice --torch-backend cu128
+```
+
+If you are installing into an existing environment instead of adding a project
+dependency, use:
 
 ```bash
 uv pip install --torch-backend cu128 torch-lattice
 ```
+
+The published wheel targets Python 3.14 and the PyTorch CUDA 12.8 wheel stack.
+At runtime, the important requirement is a Linux system with a compatible NVIDIA
+driver for the CUDA runtime provided by PyTorch. A local CUDA toolkit is only
+needed when building from source or developing the native extension.
 
 For development from a checkout:
 
@@ -93,11 +106,21 @@ TorchSparse package/worktree in separate subprocesses.
 
 ### Documentation
 
-The full documentation site lives in [`docs/`](./docs). Build it locally with:
+The full documentation is hosted at
+[torch-lattice.iki.moe](https://torch-lattice.iki.moe):
+
+- [Installation](https://torch-lattice.iki.moe/getting-started/installation.html)
+- [Quickstart](https://torch-lattice.iki.moe/getting-started/quickstart.html)
+- [Concept references](https://torch-lattice.iki.moe/reference/concepts/)
+- [Tooling references](https://torch-lattice.iki.moe/reference/tooling/)
+- [API reference](https://torch-lattice.iki.moe/api/)
+
+The source for the documentation lives in [`docs/`](./docs). Build it locally
+with:
 
 ```bash
-uv sync --all-packages --extra test --group docs
-uv run --group docs sphinx-build -W -b html docs docs/_build/html
+uv sync --group docs --no-install-workspace
+uv run --no-sync sphinx-build -W -b html docs docs/_build/html
 ```
 
 ### Development

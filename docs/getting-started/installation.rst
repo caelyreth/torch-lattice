@@ -1,19 +1,60 @@
 Installation
 ============
 
-``torch-lattice`` is a CUDA extension package and therefore has stricter build
-requirements than the MLX deployment package.
+``torch-lattice`` is published on PyPI as a CUDA extension package. Most users
+should install the published wheel; a local CUDA toolkit is only required when
+building from source or developing the native extension.
 
-Environment requirements
+Install from PyPI
+-----------------
+
+For a project managed by ``uv``, add the package with the PyTorch CUDA 12.8
+backend selected:
+
+.. code-block:: bash
+
+   uv add torch-lattice --torch-backend cu128
+
+For an existing virtual environment, install directly with:
+
+.. code-block:: bash
+
+   uv pip install --torch-backend cu128 torch-lattice
+
+Runtime requirements
+--------------------
+
+The published wheel currently targets:
+
+* Linux ``x86_64``;
+* Python ``3.14``;
+* PyTorch ``2.11.0+cu128`` from the official CUDA 12.8 wheel index;
+* an NVIDIA driver compatible with the CUDA runtime shipped through the PyTorch
+  dependency stack.
+
+In normal installed-wheel usage, you do not need ``nvcc`` or a local CUDA toolkit.
+Those are build-time requirements, not runtime requirements.
+
+Check the installed runtime with:
+
+.. code-block:: bash
+
+   uv run python -c "import torch; print(torch.version.cuda, torch.cuda.is_available())"
+
+If ``torch.cuda.is_available()`` is false, import-only and some CPU-safe checks
+may still work, but CUDA sparse operators, benchmarks, and training workflows
+require a real CUDA device.
+
+Development requirements
 ------------------------
 
-Use a Linux environment with:
+For development from a checkout, use a Linux CUDA build environment with:
 
 * Python ``>= 3.14``;
+* ``uv`` ``>= 0.11.25``;
 * a CUDA toolkit compatible with the configured PyTorch wheel;
 * PyTorch ``2.11.0+cu128`` from the official CUDA 12.8 wheel index;
-* an NVIDIA driver capable of running the selected CUDA runtime;
-* ``uv`` ``>= 0.11.25``.
+* an NVIDIA driver capable of running the selected CUDA runtime.
 
 The repository pins the CUDA 12.8 PyTorch index in ``pyproject.toml``. A normal
 workspace setup is:
@@ -22,13 +63,6 @@ workspace setup is:
 
    uv sync --all-packages --extra test
    uv run python -c "import torch; print(torch.version.cuda, torch.cuda.is_available())"
-
-If ``torch.cuda.is_available()`` is false, CPU-only import and documentation
-builds may still work, but CUDA operator tests and benchmarks will skip or fail
-when they intentionally require a real device.
-
-Editable development
---------------------
 
 For development on a CUDA host:
 
@@ -56,8 +90,9 @@ The documentation uses the same Sphinx/Furo stack as MLX Lattice:
 
 .. code-block:: bash
 
-   uv sync --all-packages --extra test --group docs
-   uv run --group docs sphinx-build -W -b html docs docs/_build/html
+   uv sync --group docs --no-install-workspace
+   uv run --no-sync sphinx-build -W -b html docs docs/_build/html
 
-The API reference imports the Python package. Build it from an environment where
-``torch-lattice`` can be imported successfully.
+The documentation configuration reads the Python sources and mocks the native
+CUDA extension for autodoc, so a local CUDA build is not required just to render
+the site.
