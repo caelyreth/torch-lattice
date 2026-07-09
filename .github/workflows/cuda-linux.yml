@@ -1,0 +1,135 @@
+name: CUDA Linux
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+  UV_LINK_MODE: copy
+  CUDA_VERSION: "12.8.0"
+
+jobs:
+  build-test:
+    name: Build and test CUDA Linux wheel
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: 0.11.21
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: ${{ env.CUDA_VERSION }}
+          method: network
+
+      - name: Check CUDA toolkit
+        run: |
+          test -n "$CUDA_PATH"
+          "$CUDA_PATH/bin/nvcc" --version
+
+      - name: Check tag matches project version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "${GITHUB_REF_NAME#v}" = "$(uv version --short)"
+
+      - name: Install workspace dependencies
+        run: uv sync --all-packages --extra test
+
+      - name: Run CPU-safe test suite
+        run: uv run --no-sync pytest tests -q
+
+      - name: Build CUDA Linux distributions
+        run: |
+          rm -rf dist
+          uv build \
+            --sdist \
+            --wheel \
+            --out-dir dist \
+            --config-setting=cmake.define.CMAKE_CUDA_COMPILER="$CUDA_PATH/bin/nvcc" \
+            --config-setting=cmake.define.CUDAToolkit_ROOT="$CUDA_PATH"
+
+      - name: Inspect wheel linkage
+        run: |
+          wheel="$(ls dist/torch_lattice-*.whl)"
+          python -m zipfile -e "$wheel" .wheel-linkage
+          extension="$(find .wheel-linkage/torch_lattice -name 'backend*.so' -print -quit)"
+          test -n "$extension"
+          ldd "$extension"
+
+      - name: Smoke test wheel import
+        run: |
+          uv venv "$RUNNER_TEMP/wheel-smoke"
+          uv pip install --python "$RUNNER_TEMP/wheel-smoke/bin/python" --torch-backend cu128 dist/torch_lattice-*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" - <<'PY'
+          import torch
+          import torch_lattice
+          import torch_lattice.backend as backend
+
+          assert torch_lattice.__version__
+          assert torch.version.cuda is not None
+          assert backend is not None
+          PY
+
+      - name: Check distribution metadata
+        run: uvx twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: cuda-linux-distributions
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+
+  github-release:
+    name: Attach CUDA Linux distributions to release
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: cuda-linux-distributions
+          path: dist
+
+      - name: Create release if needed
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" \
+              --verify-tag \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach distributions
+        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
