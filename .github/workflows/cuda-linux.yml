@@ -16,6 +16,11 @@ env:
   UV_FROZEN: "1"
   UV_LINK_MODE: copy
   CUDA_VERSION: "12.8.0"
+  CMAKE_BUILD_PARALLEL_LEVEL: "4"
+  CMAKE_GENERATOR: Ninja
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_COMPRESS: "1"
+  CCACHE_MAXSIZE: "2G"
 
 jobs:
   build-test:
@@ -50,15 +55,24 @@ jobs:
           test -n "$CUDA_PATH"
           "$CUDA_PATH/bin/nvcc" --version
 
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ccache ninja-build
+          ccache --version
+          ninja --version
+
+      - name: Restore native build cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-cuda-${{ env.CUDA_VERSION }}-ccache-${{ hashFiles('CMakeLists.txt', 'pyproject.toml', 'torch_lattice/backend/**') }}
+          restore-keys: |
+            ${{ runner.os }}-cuda-${{ env.CUDA_VERSION }}-ccache-
+
       - name: Check tag matches project version
         if: startsWith(github.ref, 'refs/tags/v')
         run: test "${GITHUB_REF_NAME#v}" = "$(uv version --short)"
-
-      - name: Install workspace dependencies
-        run: uv sync --all-packages --extra test
-
-      - name: Run CPU-safe test suite
-        run: uv run --no-sync pytest tests -q
 
       - name: Build CUDA Linux distributions
         run: |
@@ -68,7 +82,38 @@ jobs:
             --wheel \
             --out-dir dist \
             --config-setting=cmake.define.CMAKE_CUDA_COMPILER="$CUDA_PATH/bin/nvcc" \
-            --config-setting=cmake.define.CUDAToolkit_ROOT="$CUDA_PATH"
+            --config-setting=cmake.define.CUDAToolkit_ROOT="$CUDA_PATH" \
+            --config-setting=cmake.define.CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            --config-setting=cmake.define.CMAKE_CUDA_COMPILER_LAUNCHER=ccache
+          ccache --show-stats --verbose
+
+      - name: Create wheel test environment
+        run: |
+          uv venv "$RUNNER_TEMP/wheel-test"
+          uv pip install \
+            --python "$RUNNER_TEMP/wheel-test/bin/python" \
+            --torch-backend cu128 \
+            "pytest>=9.0" \
+            dist/torch_lattice-*.whl
+          uv pip install \
+            --python "$RUNNER_TEMP/wheel-test/bin/python" \
+            --no-deps \
+            -e benchmarks \
+            -e conformance
+
+      - name: Run CPU-safe test suite from wheel
+        run: |
+          export PATH="$RUNNER_TEMP/wheel-test/bin:$PATH"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-test/bin/python" - <<'PY'
+          import torch_lattice
+
+          assert 'site-packages' in torch_lattice.__file__, torch_lattice.__file__
+          PY
+          "$RUNNER_TEMP/wheel-test/bin/python" -m pytest \
+            "$GITHUB_WORKSPACE/tests" \
+            -q \
+            --import-mode=importlib
 
       - name: Inspect wheel linkage
         run: |
@@ -80,10 +125,8 @@ jobs:
 
       - name: Smoke test wheel import
         run: |
-          uv venv "$RUNNER_TEMP/wheel-smoke"
-          uv pip install --python "$RUNNER_TEMP/wheel-smoke/bin/python" --torch-backend cu128 dist/torch_lattice-*.whl
           cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/wheel-smoke/bin/python" - <<'PY'
+          "$RUNNER_TEMP/wheel-test/bin/python" - <<'PY'
           import torch
           import torch_lattice
           import torch_lattice.backend as backend
