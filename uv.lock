@@ -766,7 +766,7 @@ wheels = [
 
 [[package]]
 name = "torch-lattice"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "lattice-contract" },
@@ -792,7 +792,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lattice-contract", specifier = ">=0.2.3" },
+    { name = "lattice-contract", specifier = ">=0.3.1" },
     { name = "numpy", specifier = ">=2.4" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
     { name = "safetensors", specifier = ">=0.8.0" },
@@ -812,7 +812,7 @@ docs = [
 
 [[package]]
 name = "torch-lattice-benchmarks"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "benchmarks" }
 dependencies = [
     { name = "torch-lattice" },
@@ -823,7 +823,7 @@ requires-dist = [{ name = "torch-lattice", editable = "." }]
 
 [[package]]
 name = "torch-lattice-conformance"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "conformance" }
 dependencies = [
     { name = "torch-lattice" },

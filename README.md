@@ -14,7 +14,12 @@ to historical TorchSparse API quirks.
 ### Install
 
 `torch-lattice` currently targets Python 3.14, PyTorch CUDA 12.8 wheels, and a
-CUDA 12.8 build environment.
+CUDA 12.8 runtime/build environment. After the package is published, install the
+CUDA wheel with:
+
+```bash
+uv pip install --torch-backend cu128 torch-lattice
+```
 
 For development from a checkout:
 

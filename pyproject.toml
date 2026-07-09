@@ -1,16 +1,17 @@
 [project]
 name = "torch-lattice"
-version = "0.0.0"
+version = "0.1.0"
 description = "Sparse convolution library for modern PyTorch and CUDA."
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
+    { name = "Z.Y. Lin" },
     { name = "MIT HAN Lab" },
 ]
 dependencies = [
-    "lattice-contract>=0.2.3",
+    "lattice-contract>=0.3.1",
     "numpy>=2.4",
     "safetensors>=0.8.0",
     "torch==2.11.0+cu128",
@@ -21,6 +22,8 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/caelyreth/torch-lattice"
 Documentation = "https://github.com/caelyreth/torch-lattice/tree/main/docs"
+Source = "https://github.com/caelyreth/torch-lattice"
+Issues = "https://github.com/caelyreth/torch-lattice/issues"
 
 [project.optional-dependencies]
 test = [
