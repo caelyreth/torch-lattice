@@ -7,7 +7,7 @@ input amount, density layout, channel count, dtype, and execution mode.
 
 ## CLI
 
-Default smoke run:
+Default smoke run after `uv sync --all-packages`:
 
 ```bash
 uv run lattice-bench

@@ -8,7 +8,8 @@ rather than to historical TorchSparse API quirks.
 ### Tooling boundary
 
 The repository keeps generated-artifact checks and benchmarks in workspace
-packages instead of root scripts:
+packages instead of root scripts. After `uv sync --all-packages`, use the
+shared script aliases from the repository root:
 
 - `lattice-e2e-fixtures` writes fixed, small regression fixtures.
 - `lattice-fuzz` generates randomized CUDA provenance archives for MLX
