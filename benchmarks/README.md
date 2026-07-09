@@ -1,69 +1,94 @@
 # Torch Lattice CUDA Benchmarks
 
-This workspace package benchmarks Torch Lattice hot-path sparse tensor operations
-on synthetic CUDA inputs. The data families mirror the MLX-side benchmark suite
-so latency trends can be compared by pattern, channel count, dtype, and operator
-group.
+The benchmark suite is a workspace package with the same shape as the
+`mlx-lattice` benchmark runner: a small CLI, colorized progress, reusable case
+catalogs, structured JSON reports, and operation groups that can be swept across
+input amount, density layout, channel count, dtype, and execution mode.
 
-Synthetic patterns:
+## CLI
 
-- `isolated`: no local spatial locality
-- `line`: one-dimensional contiguous structure
-- `plane`: two-dimensional contiguous structure
-- `block2`, `block3`, `block5`, `block8`: repeated dense local blocks
-- `grid`: contiguous 3D lattice
-
-Default full run:
+Default smoke run:
 
 ```bash
-uv run --package torch-lattice-benchmarks torch-lattice-bench \
-  --output benchmark.json
+uv run --package torch-lattice-benchmarks torch-lattice-bench
 ```
 
-Quick smoke run:
+Focused convolution smoke with explicit amount/density/channel choices:
 
 ```bash
 uv run --package torch-lattice-benchmarks torch-lattice-bench \
   --preset smoke \
-  --group conv hash \
-  --output benchmark-smoke.json
+  --group conv \
+  --size 8192 \
+  --channels 32 \
+  --layout block2 \
+  --layout grid \
+  --warmup 5 \
+  --repeats 20 \
+  --output conv-smoke.json
+```
+
+Training/backward cases are explicit:
+
+```bash
+uv run --package torch-lattice-benchmarks torch-lattice-bench \
+  --group train \
+  --mode backward \
+  --size 8192 \
+  --channels 32
 ```
 
 Useful knobs:
 
-- `--points` and `--channels` control the synthetic input size.
-- `--dtype fp16|fp32` selects feature dtype.
-- `--patterns isolated line plane block3 grid` selects data families.
-- `--groups tensor hash dense kmap conv train` selects operation groups.
-- `--iters` or `--repeats` controls measured iterations.
-- `--warmup` controls warmup iterations.
+- `--preset smoke|standard|full` selects the default matrix size.
+- `--group tensor|hash|dense|kmap|conv|nn|train` can be repeated.
+- `--mode cold_op|hot_op|backward` can be repeated.
+- `--size N` can be repeated to sweep input amount.
+- `--channels C` can be repeated to sweep feature width.
+- `--layout isolated|line|plane|grid|block2|block3|block4|block8` can be repeated
+  to sweep spatial density/locality.
+- `--dtype fp16|fp32` selects sparse feature and module dtype.
+- `--color auto|always|never` controls progress coloring.
+- `--case-filter text` selects matching case names.
+- `--fail-fast` stops on the first case error; otherwise failed/unsupported
+  case-shape combinations are recorded as skipped result rows.
 
-The benchmark uses CUDA events, synchronizes every measurement, prints a compact
-summary table, and writes JSON with an `environment` object plus a `results`
-array when `--output *.json` is used. CSV output remains available for quick
-spreadsheet inspection.
+Relative `--output` paths are written under `benchmarks/results`. Each run also
+writes a `.summary.txt` next to the JSON report.
 
-The default suite covers:
+## Groups
 
-- Sparse tensor construction, device conversion, dtype conversion, feature cat,
-  generative add, global pooling, crop, activations, batch norm, and group norm.
-- Hash/query/count kernels: `sphash`, 27-offset `sphash`, `sphashquery`, and
-  `spcount`.
-- Dense/voxel paths: `to_dense`, `spvoxelize`, `spdevoxelize`, and trilinear
-  interpolation weight calculation.
-- Kernel-map helpers: `spdownsample` and `spupsample_generative`.
-- Convolution hot paths: 1x1 matmul, 3x3 implicit GEMM unsorted, 3x3 implicit
-  GEMM sorted, 3x3 fetch-on-demand fused/no-fusion, 3x3 gather-scatter, 2x2
-  stride-2 implicit GEMM, and a two-layer `stride2 -> subm3` chain that checks
-  hashmap reuse across common backbone stages.
-- Training hot path: 3x3 unsorted/sorted implicit GEMM forward plus backward and
-  cached Fetch-on-Demand fallback backward.
+- `tensor`: SparseTensor construction/device/dtype paths, feature concat,
+  generative add, global pooling, crop, activations, BatchNorm, and GroupNorm.
+- `hash`: `sphash`, 27-offset kernel hash, self query, and count kernels.
+- `dense`: dense materialization, voxelize, devoxelize, and trilinear weight
+  calculation.
+- `kmap`: downsample/upsample helpers and kernel-map construction across
+  implicit GEMM, Fetch-on-Demand, and Gather-Scatter dataflows.
+- `conv`: pointwise, 3x3, stride-2, Fetch-on-Demand, Gather-Scatter, and explicit
+  submanifold convolution module paths.
+- `nn`: composed sparse modules including classifier-style, residual add/cat,
+  and activation-chain paths.
+- `train`: forward/backward convolution paths.
 
-Convolution results include both `_cold` and `_warm` entries. `_cold` creates a
-fresh `SparseTensor` each measured iteration, so it includes kernel-map build
-cost. `_warm` reuses the same `SparseTensor` after one priming call, so it
-reflects steady-state convolution with cached maps.
+## Density layouts
 
-Dense operations are skipped when the dense output would be pathologically large
-for the sparse shape. The skip is recorded as a result row with `skipped=true`;
-adjust the guard with `--max-dense-elements`.
+The synthetic coordinate generator mirrors the MLX benchmark suite:
+
+- `isolated`: low neighborhood overlap.
+- `line`: one-dimensional contiguous structure.
+- `plane`: two-dimensional contiguous structure.
+- `grid`: contiguous 3D lattice.
+- `block2`, `block3`, `block4`, `block8`: repeated dense local blocks.
+
+## Output schema
+
+JSON reports contain:
+
+- `environment`: git SHA, Python/Torch/Torch-Lattice versions, CUDA device,
+  backend flags, and hash reserve ratio.
+- `results`: one row per case/parameter/mode with params, samples, median/min/p90
+  /p95 latency, workload metrics, throughput units, skipped status, and notes.
+
+This makes CUDA-side reports directly comparable with MLX-side reports at the
+case/mode/parameter level while preserving Torch-specific CUDA backend details.
