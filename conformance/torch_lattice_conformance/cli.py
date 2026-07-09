@@ -23,17 +23,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     command = args.pop(0)
     for name, _help, entry in _COMMANDS:
         if command == name:
-            sys.argv = [f'lattice-conformance {name}', *args]
+            sys.argv = [f'conformance {name}', *args]
             entry()
             return
 
     choices = ', '.join(name for name, _help, _entry in _COMMANDS)
-    raise SystemExit(f'unknown lattice-conformance command {command!r}; choose one of: {choices}')
+    raise SystemExit(f'unknown conformance command {command!r}; choose one of: {choices}')
 
 
 def _print_help() -> None:
     parser = argparse.ArgumentParser(
-        prog='lattice-conformance',
+        prog='conformance',
         description='Torch-side lattice artifact conformance tools.',
     )
     subcommands = parser.add_subparsers(dest='command')

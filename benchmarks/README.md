@@ -10,13 +10,13 @@ input amount, density layout, channel count, dtype, and execution mode.
 Default smoke run after `uv sync --all-packages`:
 
 ```bash
-uv run lattice-bench
+uv run bench
 ```
 
 Focused convolution smoke with explicit amount/density/channel choices:
 
 ```bash
-uv run lattice-bench \
+uv run bench \
   --preset smoke \
   --group conv \
   --size 8192 \
@@ -31,7 +31,7 @@ uv run lattice-bench \
 Training/backward cases are explicit:
 
 ```bash
-uv run lattice-bench \
+uv run bench \
   --group train \
   --mode backward \
   --size 8192 \
