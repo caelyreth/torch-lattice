@@ -20,7 +20,7 @@ env:
 jobs:
   build-test:
     name: Build and test CUDA Linux wheel
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -34,7 +34,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          version: 0.11.21
+          version: 0.11.25
           python-version: "3.14"
           enable-cache: true
           cache-dependency-glob: uv.lock
