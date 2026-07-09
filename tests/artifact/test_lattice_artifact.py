@@ -14,6 +14,8 @@ from torch_lattice.artifact import (
     save_lattice_model_artifact,
 )
 
+pytestmark = pytest.mark.artifact
+
 
 class TinySparseModel(nn.Module):
     def __init__(self) -> None:

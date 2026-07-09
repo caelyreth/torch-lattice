@@ -13,6 +13,8 @@ from torch_lattice.nn.functional.conv.func.implicit_gemm import (
 )
 from torch_lattice.utils import tune as tune_module
 
+pytestmark = [pytest.mark.nn, pytest.mark.cuda]
+
 
 def test_recursive_apply_preserves_tuple_inputs(monkeypatch):
     class DummySparseTensor:

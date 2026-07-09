@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import pytest
 import json
 import subprocess
 import sys
 import tarfile
 from pathlib import Path
 
+pytestmark = pytest.mark.conformance
 
 def test_fuzz_fixture_generator_writes_replayable_case_tree(tmp_path: Path) -> None:
     output = tmp_path / 'fuzz'

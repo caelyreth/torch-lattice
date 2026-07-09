@@ -15,6 +15,8 @@ from torch_lattice.artifact import (
     lower_fx_artifact,
 )
 
+pytestmark = pytest.mark.artifact
+
 
 def _sparse(feats=None):
     coords = torch.tensor(

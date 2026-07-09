@@ -7,8 +7,9 @@ import torch_lattice.nn as spnn
 from torch_lattice.nn import functional as F
 from torch_lattice.nn.functional.hash import sphash
 
-from .test_utils import generate_feature_map
+from tests.cases.dense_reference import generate_feature_map
 
+pytestmark = pytest.mark.core
 
 def test_generate_feature_map_returns_batch_first_coords():
     sparse = generate_feature_map((3, 4, 5), [6, 6], 2, dtype=np.float32)

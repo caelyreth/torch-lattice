@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from torch_lattice_bench.cases import all_cases
 
+pytestmark = pytest.mark.benchmark
 
 def test_benchmark_catalog_exposes_operator_and_module_groups() -> None:
     cases = all_cases(

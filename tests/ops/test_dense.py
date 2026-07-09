@@ -1,16 +1,15 @@
-from typing import Any, Dict, Tuple, Union, Optional, List
+from __future__ import annotations
+
+from typing import Tuple, Union
 
 import numpy as np
+import pytest
 import torch
-from torch import nn
 
-import torch_lattice
-from torch_lattice import nn as spnn
 from torch_lattice.utils import make_ntuple, to_dense
+from tests.cases.dense_reference import generate_feature_map
 
-from .test_utils import generate_feature_map
-
-__all__ = ["test_to_dense_forward"]
+pytestmark = [pytest.mark.ops, pytest.mark.cuda]
 
 
 def check_to_dense_forward(
@@ -18,9 +17,8 @@ def check_to_dense_forward(
     shape: Union[int, Tuple[int, ...]] = 3,
     num_points: int = 6,
     channel: int = 4,
-    device="cuda:0",
-):
-
+    device: str = 'cuda:0',
+) -> float:
     np.random.seed(0)
     torch.manual_seed(0)
 
@@ -31,34 +29,24 @@ def check_to_dense_forward(
     spatial_range = make_ntuple([batch_size, *shape], ndim=4)
 
     if num_points > np.prod(shape):
-        print("Warning: num_points exceeds coords range!")
-        print("         reduce num_points to %d!" % np.prod(shape))
         num_points = np.prod(shape)
     num_points = [num_points] * batch_size
 
     sparse_dict = generate_feature_map(shape, num_points, channel, dtype=np_dtype)
 
-    feats = np.ascontiguousarray(sparse_dict["feats"])
-    coords = np.ascontiguousarray(sparse_dict["coords"])
-    ref_dense_feats = sparse_dict["dense_feats"].transpose(0, 2, 3, 4, 1)
+    feats = np.ascontiguousarray(sparse_dict['feats'])
+    coords = np.ascontiguousarray(sparse_dict['coords'])
+    ref_dense_feats = sparse_dict['dense_feats'].transpose(0, 2, 3, 4, 1)
 
     coords_t = torch.from_numpy(coords).int().to(device)
     feats_t = torch.from_numpy(feats).to(torch_dtype).to(device)
 
     output = to_dense(feats_t, coords_t, spatial_range).cpu().numpy()
 
-    # print(output)
-    # print(ref_dense_feats)
-
-    max_adiff = np.max(np.abs(output - ref_dense_feats))
+    max_adiff = float(np.max(np.abs(output - ref_dense_feats)))
     assert max_adiff <= 1e-5
     return max_adiff
 
 
-def test_to_dense_forward():
-    check_to_dense_forward()
-
-
-if __name__ == "__main__":
-    max_adiff = check_to_dense_forward()
-    print(max_adiff)
+def test_to_dense_forward(cuda_device: torch.device) -> None:
+    check_to_dense_forward(device=str(cuda_device))
