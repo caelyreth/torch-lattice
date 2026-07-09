@@ -1,32 +1,51 @@
 ## Torch Lattice
 
-Torch Lattice is a CUDA training-side sparse point-cloud library and artifact
-producer for the lattice MLIR contract. It is a project-owned fork of
-TorchSparse, but the public semantics are aligned to `mlx-lattice` deployment
-rather than to historical TorchSparse API quirks.
+`torch-lattice` is the Torch/CUDA training-side companion to
+[`mlx-lattice`](https://github.com/caelyreth/mlx-lattice). It keeps the sparse
+model authoring and CUDA provenance workflow on the Torch side, then exports
+portable lattice MLIR artifacts for MLX/Metal deployment.
 
-### Tooling boundary
+`torch-lattice` is a project-owned fork of MIT HAN Lab's TorchSparse. The public
+semantics are aligned to `mlx-lattice` and the lattice MLIR contract rather than
+to historical TorchSparse API quirks.
 
-The repository keeps generated-artifact checks and benchmarks in workspace
-packages instead of root scripts. After `uv sync --all-packages`, use the
-workspace scripts from the repository root:
+[MLX Lattice](https://github.com/caelyreth/mlx-lattice) | [Acknowledgements](#acknowledgements)
 
-- `e2e-fixtures` writes fixed, small regression fixtures.
-- `fuzz` generates randomized CUDA provenance archives for MLX
-  replay.
-- `migration` compares the supported original TorchSparse
-  migration subset.
-- `bench` measures CUDA performance with the same synthetic data
-  families used by MLX-side benchmarking.
+### Install
+
+`torch-lattice` currently targets Python 3.14, PyTorch CUDA 12.8 wheels, and a
+CUDA 12.8 build environment.
+
+For development from a checkout:
+
+```bash
+uv sync --all-packages --extra test
+```
+
+The repository also provides a CUDA Linux GitHub workflow that builds and smoke
+checks the native CUDA wheel on an Ubuntu runner.
+
+### Relationship to MLX Lattice
+
+The two packages are intentionally split by runtime role:
+
+- `torch-lattice` is the CUDA training and artifact-production side.
+- `mlx-lattice` is the Apple Silicon inference and deployment side.
+- `lattice-contract` defines the shared artifact constants and MLIR contract
+  metadata used by both sides.
+
+Portable artifacts use `graph.mlir` plus `weights.safetensors`. Torch-side
+exporters write those files; MLX-side artifact loading compiles them into an
+executable MLX program.
 
 ### Convolution semantics
 
 Convolution classes are explicit:
 
-- `torch_lattice.nn.Conv3d` is forward support-generating sparse convolution
-  and exports to `lattice.conv3d`, including `stride=1`.
-- `torch_lattice.nn.SubmConv3d` is support-preserving submanifold convolution
-  and exports to `lattice.subm_conv3d`.
+- `torch_lattice.nn.Conv3d` is forward support-generating sparse convolution and
+  exports to `lattice.conv3d`, including `stride=1`.
+- `torch_lattice.nn.SubmConv3d` is support-preserving submanifold convolution and
+  exports to `lattice.subm_conv3d`.
 - `torch_lattice.nn.ConvTranspose3d` exports to `lattice.conv_transpose3d`.
 - `torch_lattice.nn.GenerativeConvTranspose3d` exports to
   `lattice.generative_conv_transpose3d`.
@@ -34,8 +53,24 @@ Convolution classes are explicit:
 Artifact builders lower module identity directly. They do not infer submanifold
 semantics from stride, padding, or legacy indice-key conventions.
 
-Credit: this project is based on MIT Han Lab's original
-[TorchSparse](https://github.com/mit-han-lab/torchsparse) project.
+### Tooling
+
+After `uv sync --all-packages`, use the workspace scripts from the repository
+root:
+
+```bash
+uv run bench --preset smoke
+uv run fuzz --cases 32 --device cuda --archive /tmp/torch_lattice_fuzz.tar.gz
+uv run conformance fuzz --cases 32 --device cuda
+uv run migration all --device cuda
+```
+
+The corresponding MLX-side replay command is:
+
+```bash
+uv run conformance replay /tmp/torch_lattice_fuzz.tar.gz \
+  --report /tmp/torch_lattice_fuzz_report.json
+```
 
 ### Migration compatibility checks
 
@@ -46,47 +81,40 @@ semantics. The supported migration rule is explicit:
   `torch_lattice.nn.SubmConv3d`;
 - original pointwise `Conv3d(kernel_size = 1)` maps to `torch_lattice.nn.Conv3d`;
 - original strided forward convolutions map to `torch_lattice.nn.Conv3d` with the
-  same stride;
-- branch, cat, global pool, batch norm, and pointwise feature chains must match
-  exactly for the covered inference subset.
+  same stride.
 
-Use the permanent compatibility CLI to verify the mapped subset against the kept
-original TorchSparse worktree/package. It runs both native packages in separate
-subprocesses because their extensions register overlapping native type names:
+The `migration` CLI verifies the covered subset against a kept original
+TorchSparse package/worktree in separate subprocesses.
 
-```bash
-uv run migration all \
-  --cases 70 \
-  --seed 20260709 \
-  --device cuda \
-  --output /tmp/torch_lattice_torchsparse_compat
-```
+### Development
 
-### CUDA-to-MLX artifact conformance
-
-Fuzz fixtures are CUDA provenance data for the MLX artifact runtime. Each case
-contains `graph.mlir`, `weights.safetensors`, exact inputs, expected outputs,
-and tolerances. Quantized fixture expected outputs are generated from the
-artifact-packed/dequantized weight contract, not from the pre-quantized dense
-training weights.
-
-Generate a self-contained archive for MLX-side replay with:
+Common local checks:
 
 ```bash
-uv run fuzz \
-  --cases 32 \
-  --seed 20260709 \
-  --train-steps 4 \
-  --families all \
-  --device cuda \
-  --output /tmp/torch_lattice_fuzz \
-  --archive /tmp/torch_lattice_fuzz.tar.gz
+uv run --all-packages --extra test pytest tests -q
+uv run bench --list
 ```
 
-The corresponding MLX-side command is:
+Build CUDA Linux distributions locally with:
 
 ```bash
-uv run conformance replay \
-  /tmp/torch_lattice_fuzz.tar.gz \
-  --report /tmp/torch_lattice_fuzz_report.json
+export CUDA_PATH=/usr/local/cuda-12.8
+uv build \
+  --sdist \
+  --wheel \
+  --config-setting=cmake.define.CMAKE_CUDA_COMPILER="$CUDA_PATH/bin/nvcc" \
+  --config-setting=cmake.define.CUDAToolkit_ROOT="$CUDA_PATH"
 ```
+
+### Acknowledgements
+
+`torch-lattice` is based on MIT HAN Lab's original
+[TorchSparse](https://github.com/mit-han-lab/torchsparse) project.
+
+It is developed together with
+[`mlx-lattice`](https://github.com/caelyreth/mlx-lattice), which provides the
+MLX/Metal deployment runtime for the same artifact contract.
+
+### License
+
+Open sourced under the [MIT license](./LICENSE).
