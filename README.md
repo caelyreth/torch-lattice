@@ -10,12 +10,12 @@ rather than to historical TorchSparse API quirks.
 The repository keeps generated-artifact checks and benchmarks in workspace
 packages instead of root scripts:
 
-- `torch-lattice-e2e-fixtures` writes fixed, small regression fixtures.
-- `torch-lattice-fuzz` generates randomized CUDA provenance archives for MLX
+- `lattice-e2e-fixtures` writes fixed, small regression fixtures.
+- `lattice-fuzz` generates randomized CUDA provenance archives for MLX
   replay.
-- `torch-lattice-migration` compares the supported original TorchSparse
+- `lattice-migration` compares the supported original TorchSparse
   migration subset.
-- `torch-lattice-bench` measures CUDA performance with the same synthetic data
+- `lattice-bench` measures CUDA performance with the same synthetic data
   families used by MLX-side benchmarking.
 
 ### Convolution semantics
@@ -54,7 +54,7 @@ original TorchSparse worktree/package. It runs both native packages in separate
 subprocesses because their extensions register overlapping native type names:
 
 ```bash
-uv run --package torch-lattice-conformance torch-lattice-migration all \
+uv run lattice-migration all \
   --cases 70 \
   --seed 20260709 \
   --device cuda \
@@ -72,7 +72,7 @@ training weights.
 Generate a self-contained archive for MLX-side replay with:
 
 ```bash
-uv run --package torch-lattice-conformance torch-lattice-fuzz \
+uv run lattice-fuzz \
   --cases 32 \
   --seed 20260709 \
   --train-steps 4 \
@@ -85,7 +85,7 @@ uv run --package torch-lattice-conformance torch-lattice-fuzz \
 The corresponding MLX-side command is:
 
 ```bash
-uv run --all-packages lattice-conformance replay \
+uv run lattice-conformance replay \
   /tmp/torch_lattice_fuzz.tar.gz \
   --report /tmp/torch_lattice_fuzz_report.json
 ```

@@ -8,6 +8,7 @@ dependencies = [
 ]
 
 [project.scripts]
+lattice-bench = "torch_lattice_bench.run:main"
 torch-lattice-bench = "torch_lattice_bench.run:main"
 
 [build-system]

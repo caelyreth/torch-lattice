@@ -75,7 +75,6 @@ def main() -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog='torch-lattice-bench',
         description='Benchmark torch-lattice CUDA sparse operator and module surfaces.',
     )
     parser.add_argument('--preset', choices=PRESETS, default='smoke')

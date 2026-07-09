@@ -10,13 +10,13 @@ input amount, density layout, channel count, dtype, and execution mode.
 Default smoke run:
 
 ```bash
-uv run --package torch-lattice-benchmarks torch-lattice-bench
+uv run lattice-bench
 ```
 
 Focused convolution smoke with explicit amount/density/channel choices:
 
 ```bash
-uv run --package torch-lattice-benchmarks torch-lattice-bench \
+uv run lattice-bench \
   --preset smoke \
   --group conv \
   --size 8192 \
@@ -31,7 +31,7 @@ uv run --package torch-lattice-benchmarks torch-lattice-bench \
 Training/backward cases are explicit:
 
 ```bash
-uv run --package torch-lattice-benchmarks torch-lattice-bench \
+uv run lattice-bench \
   --group train \
   --mode backward \
   --size 8192 \

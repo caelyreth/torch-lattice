@@ -8,6 +8,10 @@ dependencies = [
 ]
 
 [project.scripts]
+lattice-conformance = "torch_lattice_conformance.cli:main"
+lattice-fuzz = "torch_lattice_conformance.generate:main"
+lattice-e2e-fixtures = "torch_lattice_conformance.e2e:main"
+lattice-migration = "torch_lattice_conformance.migration:main"
 torch-lattice-fuzz = "torch_lattice_conformance.generate:main"
 torch-lattice-e2e-fixtures = "torch_lattice_conformance.e2e:main"
 torch-lattice-migration = "torch_lattice_conformance.migration:main"
