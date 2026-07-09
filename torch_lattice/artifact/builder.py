@@ -987,6 +987,89 @@ class PackedWeight:
     biases: torch.Tensor
 
 
+def dequantize_artifact_weight(
+    tensor: torch.Tensor,
+    *,
+    bits: int,
+    group_size: int,
+    scale_dtype: str = "f16",
+) -> torch.Tensor:
+    """Return the logical weight represented by artifact quantization.
+
+    This uses the same packing path as artifact export and then unpacks the
+    affine integer payload back to the source tensor layout. Test fixture
+    expected outputs can use it to compare deployment semantics instead of
+    dense pre-quantization training semantics.
+    """
+
+    source = tensor.detach().cpu().contiguous()
+    rows, kernel_rows, out_channels = _weight_rows(source.to(torch.float32))
+    in_channels = rows.shape[1]
+    packed = _pack_quantized_weight(
+        source,
+        bits=bits,
+        group_size=group_size,
+        scale_dtype=scale_dtype,
+    )
+    packed_weight = packed.weight
+    scales = packed.scales
+    biases = packed.biases
+    if kernel_rows > 1:
+        packed_weight = packed_weight.transpose(1, 2).contiguous()
+        scales = scales.transpose(1, 2).contiguous()
+        biases = biases.transpose(1, 2).contiguous()
+    dequantized_rows = _dequantize_packed_rows(
+        packed_weight.reshape(kernel_rows * out_channels, -1),
+        scales.reshape(kernel_rows * out_channels, -1),
+        biases.reshape(kernel_rows * out_channels, -1),
+        group_size=group_size,
+        bits=bits,
+    )[:, :in_channels]
+    if source.ndim == 2:
+        return dequantized_rows.reshape(out_channels, in_channels).to(source.dtype)
+    if source.ndim == 3:
+        return (
+            dequantized_rows.reshape(kernel_rows, out_channels, in_channels)
+            .transpose(1, 2)
+            .contiguous()
+            .to(source.dtype)
+        )
+    if source.ndim == 5:
+        _, kx, ky, kz, _ = source.shape
+        return (
+            dequantized_rows.reshape(kx, ky, kz, out_channels, in_channels)
+            .permute(3, 0, 1, 2, 4)
+            .contiguous()
+            .to(source.dtype)
+        )
+    raise ValueError(
+        "quantized artifact supports linear, kernel-major, and 5D "
+        "convolution weights."
+    )
+
+
+def _dequantize_packed_rows(
+    packed: torch.Tensor,
+    scales: torch.Tensor,
+    biases: torch.Tensor,
+    *,
+    group_size: int,
+    bits: int,
+) -> torch.Tensor:
+    values_per_word = 32 // bits
+    shifts = torch.arange(values_per_word, dtype=torch.int64) * bits
+    mask = (1 << bits) - 1
+    codes = (
+        (packed.to(torch.int64).unsqueeze(-1) >> shifts)
+        & mask
+    ).reshape(packed.shape[0], -1)
+    return (
+        codes.to(torch.float32)
+        * scales.to(torch.float32).repeat_interleave(group_size, dim=1)
+        + biases.to(torch.float32).repeat_interleave(group_size, dim=1)
+    )
+
+
 def _pack_quantized_weight(
     tensor: torch.Tensor,
     *,
@@ -1043,7 +1126,10 @@ def _weight_rows(tensor: torch.Tensor) -> tuple[torch.Tensor, int, int]:
         out_channels, kx, ky, kz, in_channels = tensor.shape
         rows = tensor.permute(1, 2, 3, 0, 4).reshape(kx * ky * kz * out_channels, in_channels)
         return rows, int(kx * ky * kz), int(out_channels)
-    raise ValueError("quantized artifact supports linear, kernel-major, and 5D convolution weights.")
+    raise ValueError(
+        "quantized artifact supports linear, kernel-major, and 5D "
+        "convolution weights."
+    )
 
 
 def _single_normalized_dim(value, name: str) -> int:

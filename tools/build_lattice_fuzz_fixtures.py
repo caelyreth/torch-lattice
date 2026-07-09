@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import random
 import shutil
@@ -20,6 +21,7 @@ from torch_lattice import nn as spnn
 from torch_lattice.artifact import (
     LatticeModelArtifactOptions,
     TorchLatticeArtifactBuilder,
+    dequantize_artifact_weight,
     lower_fx_artifact,
     save_lattice_model_artifact,
 )
@@ -351,7 +353,17 @@ def _classifier_case(
     target = torch.randn((spec.batch_size, out_channels), generator=_torch_generator(seed + 17)) * 0.25
     _train_dense(model, x, target, steps=train_steps, device=device)
     model.eval()
-    expected = _dense_output(model, x, device)
+    expected_model = (
+        _quantized_reference_model(
+            model,
+            bits=quantize_bits,
+            group_size=32,
+            scale_dtype="f16",
+        )
+        if quantize_bits is not None
+        else model
+    )
+    expected = _dense_output(expected_model, x, device)
     save_lattice_model_artifact(
         model,
         case_dir,
@@ -864,6 +876,70 @@ def _generative_transpose_reference(model: SparseChainModel, tensor: SparseTenso
         coords=coords,
         stride=tuple(int(tensor.stride[index]) // stride[index] for index in range(3)),
         spatial_range=tensor.spatial_range,
+    )
+
+
+def _quantized_reference_model(
+    model: nn.Module,
+    *,
+    bits: int | None,
+    group_size: int,
+    scale_dtype: str,
+) -> nn.Module:
+    if bits is None:
+        return model
+    reference = copy.deepcopy(model).cpu().eval()
+    for module in reference.modules():
+        if isinstance(
+            module,
+            (
+                spnn.Conv3d,
+                spnn.SubmConv3d,
+                spnn.ConvTranspose3d,
+                spnn.GenerativeConvTranspose3d,
+                spnn.TargetConv3d,
+            ),
+        ):
+            dequantized = dequantize_artifact_weight(
+                _conv_weight_to_mlx_like(module),
+                bits=bits,
+                group_size=group_size,
+                scale_dtype=scale_dtype,
+            )
+            kernel_size = tuple(int(item) for item in module.kernel_size)
+            kernel = (
+                dequantized.permute(1, 2, 3, 4, 0)
+                .reshape(
+                    kernel_size[0] * kernel_size[1] * kernel_size[2],
+                    module.in_channels,
+                    module.out_channels,
+                )
+                .contiguous()
+            )
+            if module.kernel.ndim == 2:
+                kernel = kernel.reshape(module.in_channels, module.out_channels)
+            module.kernel.data.copy_(kernel.to(module.kernel.dtype))
+        elif isinstance(module, nn.Linear):
+            module.weight.data.copy_(
+                dequantize_artifact_weight(
+                    module.weight.detach(),
+                    bits=bits,
+                    group_size=group_size,
+                    scale_dtype=scale_dtype,
+                ).to(module.weight.dtype)
+            )
+    return reference
+
+
+def _conv_weight_to_mlx_like(module: spnn.Conv3d) -> torch.Tensor:
+    kernel_size = tuple(int(item) for item in module.kernel_size)
+    weight = module.kernel.detach()
+    if weight.ndim == 2:
+        weight = weight.reshape(1, weight.shape[0], weight.shape[1])
+    return (
+        weight.reshape(*kernel_size, module.in_channels, module.out_channels)
+        .permute(4, 0, 1, 2, 3)
+        .contiguous()
     )
 
 
