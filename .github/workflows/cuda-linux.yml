@@ -69,7 +69,7 @@ jobs:
       - name: Install native build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ccache ninja-build
+          sudo apt-get install -y --no-install-recommends ccache ninja-build patchelf
           ccache --version
           ninja --version
 
@@ -97,6 +97,32 @@ jobs:
             --config-setting=cmake.define.CMAKE_CXX_COMPILER_LAUNCHER=ccache \
             --config-setting=cmake.define.CMAKE_CUDA_COMPILER_LAUNCHER=ccache
           ccache --show-stats --verbose
+
+      - name: Repair wheel platform tag
+        run: |
+          rm -rf wheelhouse
+          mkdir -p wheelhouse
+          uvx auditwheel repair \
+            --plat manylinux_2_38_x86_64 \
+            --exclude libc10.so \
+            --exclude libc10_cuda.so \
+            --exclude libcudart.so.12 \
+            --exclude libcublas.so.12 \
+            --exclude libcublasLt.so.12 \
+            --exclude libcudnn.so.9 \
+            --exclude libcufft.so.11 \
+            --exclude libcurand.so.10 \
+            --exclude libcusolver.so.11 \
+            --exclude libcusparse.so.12 \
+            --exclude libnccl.so.2 \
+            --exclude libtorch.so \
+            --exclude libtorch_cpu.so \
+            --exclude libtorch_cuda.so \
+            --exclude libtorch_python.so \
+            --wheel-dir wheelhouse \
+            dist/torch_lattice-*.whl
+          rm dist/torch_lattice-*.whl
+          mv wheelhouse/torch_lattice-*.whl dist/
 
       - name: Create wheel test environment
         run: |
