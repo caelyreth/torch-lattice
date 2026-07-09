@@ -2,7 +2,18 @@ name: CUDA Linux
 
 on:
   pull_request:
+    paths:
+      - .github/workflows/cuda-linux.yml
+      - CMakeLists.txt
+      - pyproject.toml
+      - uv.lock
+      - torch_lattice/**
+      - benchmarks/**
+      - conformance/**
+      - tests/**
   push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -10,7 +21,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   UV_FROZEN: "1"
@@ -170,9 +181,11 @@ jobs:
               --title "${GITHUB_REF_NAME}" \
               --generate-notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
       - name: Attach distributions
         run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
