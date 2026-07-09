@@ -47,3 +47,45 @@ def test_fuzz_fixture_generator_writes_replayable_case_tree(tmp_path: Path) -> N
     with tarfile.open(archive, 'r:gz') as handle:
         names = set(handle.getnames())
     assert f'{output.name}/manifest.json' in names
+
+
+def test_torchsparse_migration_compatibility_tool_smoke(tmp_path: Path) -> None:
+    available = subprocess.run(
+        [sys.executable, '-c', 'import torchsparse'],
+        cwd=Path(__file__).resolve().parents[2],
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if available.returncode != 0:
+        return
+
+    output = tmp_path / 'compat'
+    subprocess.run(
+        [
+            sys.executable,
+            'tools/check_torchsparse_migration_compat.py',
+            'all',
+            '--cases',
+            '7',
+            '--seed',
+            '20260709',
+            '--device',
+            'cpu',
+            '--output',
+            str(output),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+    )
+    report = json.loads((output / 'report.json').read_text())
+    assert report['summary']['failed'] == 0
+    assert set(report['summary']['families']) == {
+        'batchnorm_chain',
+        'branch_add',
+        'branch_cat',
+        'global_pool',
+        'pointwise_chain',
+        'spatial_subm_mapping',
+        'stride2_forward',
+    }
