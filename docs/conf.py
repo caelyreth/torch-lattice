@@ -7,6 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'benchmarks'))
+sys.path.insert(0, str(ROOT / 'conformance'))
 
 project = 'torch-lattice'
 author = 'Z.Y. Lin'
@@ -41,6 +43,7 @@ autosummary_generate = True
 autodoc_typehints = 'description'
 autodoc_typehints_format = 'short'
 autodoc_member_order = 'bysource'
+autodoc_mock_imports = ['torch_lattice.backend']
 autodoc_default_options = {
     'members': True,
     'undoc-members': False,
