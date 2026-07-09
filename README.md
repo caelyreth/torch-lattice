@@ -86,6 +86,15 @@ semantics. The supported migration rule is explicit:
 The `migration` CLI verifies the covered subset against a kept original
 TorchSparse package/worktree in separate subprocesses.
 
+### Documentation
+
+The full documentation site lives in [`docs/`](./docs). Build it locally with:
+
+```bash
+uv sync --all-packages --extra test --group docs
+uv run --group docs sphinx-build -W -b html docs docs/_build/html
+```
+
 ### Development
 
 Common local checks:

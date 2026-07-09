@@ -20,11 +20,19 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/caelyreth/torch-lattice"
-Documentation = "http://torch-lattice-docs.github.io/"
+Documentation = "https://github.com/caelyreth/torch-lattice/tree/main/docs"
 
 [project.optional-dependencies]
 test = [
     "pytest>=9.0",
+]
+
+[dependency-groups]
+docs = [
+    "furo>=2025.12.19",
+    "sphinx>=9.1.0",
+    "sphinx-autodoc-typehints>=3.12.0",
+    "sphinx-copybutton>=0.5.2",
 ]
 
 [build-system]

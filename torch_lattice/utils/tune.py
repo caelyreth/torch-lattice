@@ -390,15 +390,27 @@ def tune(
     verbose: bool = True,
     skip_warning: bool = False,
 ):
-    """Two-stage tuner for the best configuration by the provided model and data loader.
+    """Tune sparse convolution backend configuration for a model.
+
     Args:
-        model: A nn.Module to be profiled for best conv configs.
-        data_loader: An iterator with data samples. Recommended
-            to use the same data loader for training.
-        n_samples: Number of samples for profiling group configs.
-        collect_fn: Process data before calling model.forward(). In other words,
-            run `model(*collect_fn(data))` where data is yielded by data_loader.
-            The default case handles {'input': SparseTensor,...} for data.
+        model: Module to profile for convolution backend configuration.
+        data_loader: Iterable that yields representative training samples.
+        n_samples: Number of samples used while profiling candidate configs.
+        collect_fn: Function that converts one data-loader item into model input.
+            The tuned call is equivalent to ``model(collect_fn(data))`` unless the
+            callable returns a structure consumed by the model itself.
+        enable_fp16: Profile with half precision and CUDA autocast enabled.
+        save_dir: Directory used to cache tuned configuration files.
+        tune_tag: Cache file name under ``save_dir``.
+        force_retune: Ignore an existing cache file and profile again.
+        dataflow_range: Candidate convolution dataflows. When omitted, forward-only
+            tuning checks implicit GEMM and Fetch-on-Demand; backward tuning uses
+            implicit GEMM.
+        dataflow_prune: Select the best dataflow before tuning lower-level config
+            thresholds.
+        tune_with_bwd: Include backward timing in the tuning objective.
+        verbose: Print tuning progress and cache information.
+        skip_warning: Suppress iterator and backend-mode warnings.
     """
     if dataflow_range is None:
         dataflow_range = (
