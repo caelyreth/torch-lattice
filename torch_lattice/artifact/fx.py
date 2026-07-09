@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import operator
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -72,21 +71,7 @@ FxLoweringFn = Callable[
 ]
 
 
-@dataclass(frozen=True)
-class FxFunctionLowering:
-    fn: FxLoweringFn
-
-    def lower(
-        self,
-        interpreter: "LatticeArtifactInterpreter",
-        target: fx.node.Target,
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-    ) -> Any:
-        return self.fn(interpreter, target, args, kwargs)
-
-
-_FX_FUNCTION_LOWERINGS: dict[object, FxFunctionLowering] = {}
+_FX_FUNCTION_LOWERINGS: dict[object, FxLoweringFn] = {}
 
 
 def fx_function_lowering(
@@ -95,9 +80,8 @@ def fx_function_lowering(
     """Register an FX function lowering."""
 
     def decorator(fn: FxLoweringFn) -> FxLoweringFn:
-        lowering = FxFunctionLowering(fn)
         for target in targets:
-            _FX_FUNCTION_LOWERINGS[target] = lowering
+            _FX_FUNCTION_LOWERINGS[target] = fn
         return fn
 
     return decorator
@@ -150,7 +134,7 @@ class LatticeArtifactInterpreter(fx.Interpreter):
             return super().call_function(target, args, kwargs)
         lowering = _FX_FUNCTION_LOWERINGS.get(target)
         if lowering is not None:
-            return lowering.lower(self, target, args, kwargs)
+            return lowering(self, target, args, kwargs)
         raise ValueError(f"unsupported FX function for lattice artifact: {target}")
 
     def call_method(
