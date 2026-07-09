@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / 'conformance'))
 project = 'torch-lattice'
 author = 'Z.Y. Lin'
 copyright = f'{datetime.now(UTC).year}, {author}'
-release = '0.1.1'
+release = '0.1.2'
 version = release
 
 extensions = [
