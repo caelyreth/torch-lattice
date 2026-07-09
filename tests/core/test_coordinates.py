@@ -8,6 +8,7 @@ from torch_lattice.nn import functional as F
 from torch_lattice.nn.functional.hash import sphash
 
 from tests.cases.dense_reference import generate_feature_map
+from tests.conftest import cuda_required
 
 pytestmark = pytest.mark.core
 
@@ -22,6 +23,7 @@ def test_generate_feature_map_returns_batch_first_coords():
     assert coords[:, 3].max() < 5
 
 
+@cuda_required
 def test_spcrop_uses_spatial_xyz_not_batch_column():
     coords = torch.tensor(
         [
@@ -75,6 +77,7 @@ def test_spcrop_uses_spatial_xyz_not_batch_column():
     assert torch.equal(max_only.coords, expected_max_only)
 
 
+@cuda_required
 def test_kernel_hash_offsets_apply_to_xyz_on_cpu_and_cuda():
     coords_cpu = torch.tensor(
         [[3, 10, 20, 30], [4, 11, 21, 31]],
@@ -99,6 +102,7 @@ def test_kernel_hash_offsets_apply_to_xyz_on_cpu_and_cuda():
 
 
 @pytest.mark.parametrize("module_cls", [spnn.ToBEVReduction, spnn.ToBEVConvolution])
+@cuda_required
 def test_bev_modules_default_to_z_coordinate_dim(module_cls):
     if module_cls is spnn.ToBEVReduction:
         module = module_cls().cuda()
@@ -119,6 +123,7 @@ def test_bev_modules_default_to_z_coordinate_dim(module_cls):
     assert torch.all(out.coords[:, 3] == 0)
 
 
+@cuda_required
 def test_bev_height_compression_default_uses_z_coordinate_dim():
     module = spnn.ToBEVHeightCompression(1, shape=(3, 4, 5)).cuda()
     coords = torch.tensor(
@@ -137,6 +142,7 @@ def test_bev_height_compression_default_uses_z_coordinate_dim():
     assert out[0, 0, 2, 1] == 1
 
 
+@cuda_required
 def test_compact_on_the_fly_kmap_uses_int32_hashmap():
     config = F.conv_config.get_default_conv_config().copy()
     config.dataflow = F.Dataflow.ImplicitGEMM
@@ -161,6 +167,7 @@ def test_compact_on_the_fly_kmap_uses_int32_hashmap():
     assert hashmap_keys.dtype == torch.int32
 
 
+@cuda_required
 def test_wide_coordinate_stride2_conv_uses_int64_kmap_safely():
     config = F.conv_config.get_default_conv_config().copy()
     config.dataflow = F.Dataflow.ImplicitGEMM
@@ -197,6 +204,7 @@ def test_wide_coordinate_stride2_conv_uses_int64_kmap_safely():
     assert out.feats.numel() > 0
 
 
+@cuda_required
 def test_fetch_on_demand_fused_falls_back_for_large_quantified_map():
     config = F.conv_config.get_default_conv_config().copy()
     config.dataflow = F.Dataflow.FetchOnDemand
@@ -222,6 +230,7 @@ def test_fetch_on_demand_fused_falls_back_for_large_quantified_map():
     assert out.feats.shape == feats.shape
 
 
+@cuda_required
 def test_kernel_map_cache_is_separated_by_dataflow():
     coords = torch.tensor(
         [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]],
@@ -252,6 +261,7 @@ def test_kernel_map_cache_is_separated_by_dataflow():
     assert all(kmap.get("qmapsize") is None for kmap in tensor._caches.kmaps.values())
 
 
+@cuda_required
 def test_fetch_on_demand_fusion_flag_controls_quantified_kmap_metadata():
     coords = torch.tensor(
         [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]],

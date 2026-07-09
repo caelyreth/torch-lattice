@@ -11,6 +11,7 @@ import torch_lattice
 from torch_lattice import nn as spnn
 from torch_lattice.nn import functional as F
 from torch_lattice.utils import make_ntuple
+from tests.conftest import cuda_required
 from tests.cases.dense_reference import (
     dense_pad,
     dense_to_subm,
@@ -233,6 +234,7 @@ def check_single_layer_convolution_forward(
     return mean_adiff, max_rdiff
 
 
+@cuda_required
 def test_single_layer_convolution_forward():
     check_single_layer_convolution_forward()
 

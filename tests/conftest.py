@@ -6,6 +6,12 @@ import pytest
 import torch
 
 
+cuda_required = pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason='CUDA is required',
+)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup('torch-lattice')
     group.addoption(
