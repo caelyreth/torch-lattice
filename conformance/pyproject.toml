@@ -1,0 +1,23 @@
+[project]
+name = "torch-lattice-conformance"
+version = "0.0.0"
+description = "Cross-runtime fixture generation and migration conformance tools for torch-lattice"
+requires-python = ">=3.14"
+dependencies = [
+    "torch-lattice",
+]
+
+[project.scripts]
+torch-lattice-fuzz = "torch_lattice_conformance.generate:main"
+torch-lattice-e2e-fixtures = "torch_lattice_conformance.e2e:main"
+torch-lattice-migration = "torch_lattice_conformance.migration:main"
+
+[build-system]
+requires = ["hatchling>=1.28"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+torch-lattice = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["torch_lattice_conformance"]

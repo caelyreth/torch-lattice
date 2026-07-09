@@ -5,6 +5,19 @@ producer for the lattice MLIR contract. It is a project-owned fork of
 TorchSparse, but the public semantics are aligned to `mlx-lattice` deployment
 rather than to historical TorchSparse API quirks.
 
+### Tooling boundary
+
+The repository keeps generated-artifact checks and benchmarks in workspace
+packages instead of root scripts:
+
+- `torch-lattice-e2e-fixtures` writes fixed, small regression fixtures.
+- `torch-lattice-fuzz` generates randomized CUDA provenance archives for MLX
+  replay.
+- `torch-lattice-migration` compares the supported original TorchSparse
+  migration subset.
+- `torch-lattice-bench` measures CUDA performance with the same synthetic data
+  families used by MLX-side benchmarking.
+
 ### Convolution semantics
 
 Convolution classes are explicit:
@@ -36,13 +49,12 @@ semantics. The supported migration rule is explicit:
 - branch, cat, global pool, batch norm, and pointwise feature chains must match
   exactly for the covered inference subset.
 
-Use the permanent compatibility tool to verify the mapped subset against the
-kept original TorchSparse worktree/package. It runs both native packages in
-separate subprocesses because their extensions register overlapping native type
-names:
+Use the permanent compatibility CLI to verify the mapped subset against the kept
+original TorchSparse worktree/package. It runs both native packages in separate
+subprocesses because their extensions register overlapping native type names:
 
 ```bash
-python tools/check_torchsparse_migration_compat.py all \
+uv run --package torch-lattice-conformance torch-lattice-migration all \
   --cases 70 \
   --seed 20260709 \
   --device cuda \
@@ -57,10 +69,10 @@ and tolerances. Quantized fixture expected outputs are generated from the
 artifact-packed/dequantized weight contract, not from the pre-quantized dense
 training weights.
 
-Generate an archive for MLX-side replay with:
+Generate a self-contained archive for MLX-side replay with:
 
 ```bash
-python tools/build_lattice_fuzz_fixtures.py \
+uv run --package torch-lattice-conformance torch-lattice-fuzz \
   --cases 32 \
   --seed 20260709 \
   --train-steps 4 \
@@ -68,4 +80,12 @@ python tools/build_lattice_fuzz_fixtures.py \
   --device cuda \
   --output /tmp/torch_lattice_fuzz \
   --archive /tmp/torch_lattice_fuzz.tar.gz
+```
+
+The corresponding MLX-side command is:
+
+```bash
+uv run --all-packages lattice-conformance replay \
+  /tmp/torch_lattice_fuzz.tar.gz \
+  --report /tmp/torch_lattice_fuzz_report.json
 ```

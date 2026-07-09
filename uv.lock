@@ -2,6 +2,13 @@ version = 1
 revision = 3
 requires-python = ">=3.14"
 
+[manifest]
+members = [
+    "torch-lattice",
+    "torch-lattice-benchmarks",
+    "torch-lattice-conformance",
+]
+
 [[package]]
 name = "colorama"
 version = "0.4.6"
@@ -117,11 +124,11 @@ wheels = [
 
 [[package]]
 name = "lattice-contract"
-version = "0.2.2"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/60/66/ef32f42caf2fc92c6610ce347ca6bf85e19da95ac76bf99559e501b5b864/lattice_contract-0.2.2.tar.gz", hash = "sha256:e9191dfc7a9b8c1a38e438ff45334e65e0173da27801f6a9253a486dd249d11d", size = 8991, upload-time = "2026-07-06T11:58:24.645Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0e/2b/5effdbc37f447d3a465eb4d82b42e447b358a4f3ab2c69820b4b71b3cd1c/lattice_contract-0.3.1.tar.gz", hash = "sha256:507e6ea2379f25aca7b99b0d0c71e2d55fb31bf03bba55acd702a00190c19510", size = 12439, upload-time = "2026-07-09T02:57:24.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/2f/0e349ec53346f0470a15c9bd54b49efba18b00e6c044ab764b934c8981c0/lattice_contract-0.2.2-py3-none-any.whl", hash = "sha256:f579f01c838fc31aa8991310904e19a59f9e9fdf43e141515ab590a02e6062c7", size = 9391, upload-time = "2026-07-06T11:58:23.898Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/14/99a8782fe4b7edf19ded109d9a2e3b10b248127c467a7a4b59f3c8ea821b/lattice_contract-0.3.1-py3-none-any.whl", hash = "sha256:2b508de9b54b8b545dea890840f1b9981a5f669756339daaea0c8e23163f0b65", size = 12485, upload-time = "2026-07-09T02:57:23.698Z" },
 ]
 
 [[package]]
@@ -487,7 +494,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lattice-contract", specifier = ">=0.2.2" },
+    { name = "lattice-contract", specifier = ">=0.2.3" },
     { name = "numpy", specifier = ">=2.4" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
     { name = "safetensors", specifier = ">=0.8.0" },
@@ -496,6 +503,28 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.15" },
 ]
 provides-extras = ["test"]
+
+[[package]]
+name = "torch-lattice-benchmarks"
+version = "0.0.0"
+source = { editable = "benchmarks" }
+dependencies = [
+    { name = "torch-lattice" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "torch-lattice", editable = "." }]
+
+[[package]]
+name = "torch-lattice-conformance"
+version = "0.0.0"
+source = { editable = "conformance" }
+dependencies = [
+    { name = "torch-lattice" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "torch-lattice", editable = "." }]
 
 [[package]]
 name = "tqdm"

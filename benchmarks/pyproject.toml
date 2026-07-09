@@ -1,0 +1,21 @@
+[project]
+name = "torch-lattice-benchmarks"
+version = "0.0.0"
+description = "CUDA benchmark suite for torch-lattice"
+requires-python = ">=3.14"
+dependencies = [
+    "torch-lattice",
+]
+
+[project.scripts]
+torch-lattice-bench = "torch_lattice_bench.run:main"
+
+[build-system]
+requires = ["hatchling>=1.28"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+torch-lattice = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["torch_lattice_bench"]

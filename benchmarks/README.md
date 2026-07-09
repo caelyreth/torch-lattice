@@ -1,7 +1,11 @@
-# TorchSparse Sparse Operator Benchmarks
+# Torch Lattice CUDA Benchmarks
 
-This suite benchmarks TorchSparse hot-path sparse tensor operations on synthetic
-600K-point CUDA inputs with controlled sparsity patterns:
+This workspace package benchmarks Torch Lattice hot-path sparse tensor operations
+on synthetic CUDA inputs. The data families mirror the MLX-side benchmark suite
+so latency trends can be compared by pattern, channel count, dtype, and operator
+group.
+
+Synthetic patterns:
 
 - `isolated`: no local spatial locality
 - `line`: one-dimensional contiguous structure
@@ -12,26 +16,32 @@ This suite benchmarks TorchSparse hot-path sparse tensor operations on synthetic
 Default full run:
 
 ```bash
-uv run python benchmarks/sparse_ops_benchmark.py --output benchmark.json
-```
-
-If the local `uv` version is older than the project requirement, run the same
-script through the environment Python:
-
-```bash
-.venv/bin/python benchmarks/sparse_ops_benchmark.py --output benchmark.json
+uv run --package torch-lattice-benchmarks torch-lattice-bench \
+  --output benchmark.json
 ```
 
 Quick smoke run:
 
 ```bash
-uv run python benchmarks/sparse_ops_benchmark.py --smoke
+uv run --package torch-lattice-benchmarks torch-lattice-bench \
+  --preset smoke \
+  --group conv hash \
+  --output benchmark-smoke.json
 ```
 
-The benchmark uses CUDA events, synchronizes every measurement, reports mean,
-median, p90, min/max latency, peak allocated memory, input points, channels, and
-output points where applicable.  Operator groups can be selected with
-`--groups tensor hash dense kmap conv train`.
+Useful knobs:
+
+- `--points` and `--channels` control the synthetic input size.
+- `--dtype fp16|fp32` selects feature dtype.
+- `--patterns isolated line plane block3 grid` selects data families.
+- `--groups tensor hash dense kmap conv train` selects operation groups.
+- `--iters` or `--repeats` controls measured iterations.
+- `--warmup` controls warmup iterations.
+
+The benchmark uses CUDA events, synchronizes every measurement, prints a compact
+summary table, and writes JSON with an `environment` object plus a `results`
+array when `--output *.json` is used. CSV output remains available for quick
+spreadsheet inspection.
 
 The default suite covers:
 
@@ -46,14 +56,14 @@ The default suite covers:
   GEMM sorted, 3x3 fetch-on-demand fused/no-fusion, 3x3 gather-scatter, 2x2
   stride-2 implicit GEMM, and a two-layer `stride2 -> subm3` chain that checks
   hashmap reuse across common backbone stages.
-- Training hot path: 3x3 unsorted/sorted implicit GEMM forward plus backward
-  and cached Fetch-on-Demand fallback backward.
+- Training hot path: 3x3 unsorted/sorted implicit GEMM forward plus backward and
+  cached Fetch-on-Demand fallback backward.
 
-Convolution results include both `_cold` and `_warm` entries.  `_cold` creates a
+Convolution results include both `_cold` and `_warm` entries. `_cold` creates a
 fresh `SparseTensor` each measured iteration, so it includes kernel-map build
-cost.  `_warm` reuses the same `SparseTensor` after one priming call, so it
+cost. `_warm` reuses the same `SparseTensor` after one priming call, so it
 reflects steady-state convolution with cached maps.
 
-Some dense operations are intentionally skipped when the dense output would be
-pathologically large for the sparse shape.  The skip is recorded as a result row
-with `skipped=true`; adjust the guard with `--max-dense-elements`.
+Dense operations are skipped when the dense output would be pathologically large
+for the sparse shape. The skip is recorded as a result row with `skipped=true`;
+adjust the guard with `--max-dense-elements`.

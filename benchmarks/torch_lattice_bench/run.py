@@ -11,8 +11,11 @@ import argparse
 import csv
 import json
 import math
+import platform
 import random
 import statistics
+import subprocess
+import sys
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -708,31 +711,46 @@ def benchmark_pattern(pattern: str, args, timer: CudaTimer) -> list[BenchResult]
     results: list[BenchResult] = []
     for group in args.groups:
         print(f"[benchmark]   group={group}", flush=True)
-        if group == "tensor":
-            results.extend(benchmark_tensor_ops(x, timer, args, args.dtype, pattern))
-        elif group == "hash":
-            results.extend(benchmark_hash_ops(x, timer, args, args.dtype, pattern))
-        elif group == "dense":
-            results.extend(benchmark_dense_voxel_ops(x, timer, args, args.dtype, pattern))
-        elif group == "kmap":
-            results.extend(benchmark_kmap_ops(x, timer, args, args.dtype, pattern))
-        elif group == "conv":
-            results.extend(benchmark_conv_ops(x, timer, args, args.dtype, pattern))
-        elif group == "train":
-            results.extend(benchmark_training_ops(x, timer, args, args.dtype, pattern))
-        else:
-            raise ValueError(f"unknown group: {group}")
+        try:
+            if group == "tensor":
+                results.extend(benchmark_tensor_ops(x, timer, args, args.dtype, pattern))
+            elif group == "hash":
+                results.extend(benchmark_hash_ops(x, timer, args, args.dtype, pattern))
+            elif group == "dense":
+                results.extend(benchmark_dense_voxel_ops(x, timer, args, args.dtype, pattern))
+            elif group == "kmap":
+                results.extend(benchmark_kmap_ops(x, timer, args, args.dtype, pattern))
+            elif group == "conv":
+                results.extend(benchmark_conv_ops(x, timer, args, args.dtype, pattern))
+            elif group == "train":
+                results.extend(benchmark_training_ops(x, timer, args, args.dtype, pattern))
+            else:
+                raise ValueError(f"unknown group: {group}")
+        except Exception as exc:
+            results.append(
+                make_skip_result(
+                    pattern=pattern,
+                    op=f"{group}_group",
+                    dtype_name=args.dtype,
+                    points=int(x.feats.shape[0]),
+                    channels=int(x.feats.shape[1]),
+                    warmup=args.warmup,
+                    iters=args.iters,
+                    notes=f"skipped after benchmark failure: {type(exc).__name__}: {exc}",
+                )
+            )
     return results
 
 
 def write_results(results: list[BenchResult], output: Path | None) -> None:
     rows = [asdict(r) for r in results]
-    print(json.dumps(rows, indent=2))
+    payload = {"environment": environment(), "results": rows}
+    print(summary_table(results))
     if output is None:
         return
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.suffix == ".json":
-        output.write_text(json.dumps(rows, indent=2) + "\n")
+        output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     elif output.suffix == ".csv":
         with output.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -742,16 +760,79 @@ def write_results(results: list[BenchResult], output: Path | None) -> None:
         raise ValueError("output must end in .json or .csv")
 
 
+def environment() -> dict[str, object]:
+    return {
+        "git_sha": _git_sha(),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "torch_version": torch.__version__,
+        "torch_lattice_version": getattr(torch_lattice, "__version__", "unknown"),
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    }
+
+
+def summary_table(results: list[BenchResult]) -> str:
+    if not results:
+        return "No benchmark results."
+    headers = ["case", "dtype", "points", "channels", "median_ms", "p90_ms", "memory_mb"]
+    rows: list[list[str]] = []
+    for result in results:
+        rows.append([
+            f"{result.pattern}/{result.op}",
+            result.dtype,
+            str(result.points),
+            str(result.channels),
+            _number(result.median_ms),
+            _number(result.p90_ms),
+            _number(result.memory_mb),
+        ])
+    widths = [
+        max(len(headers[col]), *(len(row[col]) for row in rows))
+        for col in range(len(headers))
+    ]
+    lines = [
+        "  ".join(headers[col].ljust(widths[col]) for col in range(len(headers))),
+        "  ".join("-" * width for width in widths),
+    ]
+    lines.extend(
+        "  ".join(row[col].ljust(widths[col]) for col in range(len(row)))
+        for row in rows
+    )
+    return "\n".join(lines)
+
+
+def _number(value: float | None) -> str:
+    if value is None:
+        return "skip"
+    return f"{value:.3f}"
+
+
+def _git_sha() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return result.stdout.strip()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--points", type=int, default=600_000)
     parser.add_argument("--channels", type=int, default=32)
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--preset", choices=("full", "smoke"), default="full")
     parser.add_argument("--warmup", type=int, default=10)
-    parser.add_argument("--iters", type=int, default=30)
+    parser.add_argument("--iters", "--repeats", dest="iters", type=int, default=30)
     parser.add_argument("--patterns", nargs="+", choices=PATTERNS, default=list(PATTERNS))
-    parser.add_argument("--groups", nargs="+", choices=("tensor", "hash", "dense", "kmap", "conv", "train"), default=["tensor", "hash", "dense", "kmap", "conv", "train"])
+    parser.add_argument("--groups", "--group", nargs="+", choices=("tensor", "hash", "dense", "kmap", "conv", "train"), default=["tensor", "hash", "dense", "kmap", "conv", "train"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
@@ -766,13 +847,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-allow-tf32", dest="allow_tf32", action="store_false")
     parser.add_argument("--allow-fp16", dest="allow_fp16", action="store_true", default=True)
     parser.add_argument("--no-allow-fp16", dest="allow_fp16", action="store_false")
-    parser.add_argument("--smoke", action="store_true", help="Run a quick 8K-point, 1-warmup, 2-iteration check.")
+    parser.add_argument("--smoke", action="store_true", help="Alias for --preset smoke.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    if args.smoke:
+    if args.smoke or args.preset == "smoke":
         args.points = min(args.points, 8_192)
         args.channels = min(args.channels, 16)
         args.warmup = 1
@@ -789,6 +870,7 @@ def main() -> None:
     torch.backends.cuda.matmul.allow_tf32 = args.allow_tf32
     torch_lattice.backends.allow_tf32 = args.allow_tf32
     torch_lattice.backends.allow_fp16 = args.allow_fp16
+    torch_lattice.backends.hash_rsv_ratio = max(64, torch_lattice.backends.hash_rsv_ratio)
     torch_lattice.backends.benchmark = True
 
     timer = CudaTimer()
