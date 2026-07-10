@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import torch
+
 from torch_lattice import SparseTensor
-from torch_lattice.operators import cat, generative_add, reindex_sparse
+from torch_lattice.operators import (
+    cat,
+    generative_add,
+    prune_mask,
+    reindex_sparse,
+)
 
 from torch_lattice_bench.cases.common import (
     F,
@@ -44,6 +51,7 @@ def cases(
                 None,
             ),
             ("sparse_reindex", _reindex, ("elements",), None),
+            ("prune_mask", _prune_mask, ("n_in",), None),
             (
                 "global_avg_pool",
                 lambda f: F.global_avg_pool(f.tensor),
@@ -117,6 +125,13 @@ def _generative_add_shifted(fixture: SparseFixture) -> SparseTensor:
 
 def _reindex(fixture: SparseFixture) -> SparseTensor:
     return reindex_sparse(fixture.tensor, shifted_sparse(fixture.tensor))
+
+
+def _prune_mask(fixture: SparseFixture) -> SparseTensor:
+    rows = torch.arange(
+        fixture.tensor.coords.shape[0], device=fixture.tensor.coords.device
+    )
+    return prune_mask(fixture.tensor, rows.remainder(2) == 0)
 
 
 def _crop_center_half(fixture: SparseFixture) -> SparseTensor:

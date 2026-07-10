@@ -155,6 +155,50 @@ class SparseTensor:
             raise ValueError("dense conversion requires spatial_range")
         return to_dense(self.feats, self.coords, self.spatial_range)
 
+    @property
+    def batch_indices(self) -> torch.Tensor:
+        """Batch column from ``coords``."""
+        return self.coords[:, 0]
+
+    @property
+    def batch_rows(self) -> tuple[torch.Tensor, ...]:
+        """Row indices grouped by coordinate batch value."""
+        if self.batch_counts is not None:
+            batch_size = len(self.batch_counts)
+        elif self.spatial_range is not None:
+            batch_size = self.spatial_range[0]
+        elif self.coords.shape[0] == 0:
+            batch_size = 0
+        else:
+            batch_size = int(self.batch_indices.max().item()) + 1
+        return tuple(
+            torch.nonzero(self.batch_indices == batch, as_tuple=False).flatten()
+            for batch in range(batch_size)
+        )
+
+    @property
+    def decomposed_coordinates(self) -> tuple[torch.Tensor, ...]:
+        """Spatial coordinates split by batch."""
+        return tuple(
+            self.coords.index_select(0, rows)[:, 1:] for rows in self.batch_rows
+        )
+
+    @property
+    def decomposed_features(self) -> tuple[torch.Tensor, ...]:
+        """Feature rows split by batch."""
+        return tuple(self.feats.index_select(0, rows) for rows in self.batch_rows)
+
+    @property
+    def decomposed_coordinates_and_features(
+        self,
+    ) -> tuple[tuple[torch.Tensor, ...], tuple[torch.Tensor, ...]]:
+        """Spatial coordinates and features split by batch."""
+        rows = self.batch_rows
+        return (
+            tuple(self.coords.index_select(0, part)[:, 1:] for part in rows),
+            tuple(self.feats.index_select(0, part) for part in rows),
+        )
+
     def __add__(self, other: SparseTensor) -> SparseTensor:
         from torch_lattice.operators import sparse_add
 

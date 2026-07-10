@@ -65,3 +65,64 @@ def test_sparse_tensor_add_uses_coordinate_aligned_sparse_binary() -> None:
 
     torch.testing.assert_close(out.coords, lhs.coords)
     torch.testing.assert_close(out.feats, lhs.feats * 3)
+
+
+def test_sparse_tensor_decomposes_noncontiguous_batches() -> None:
+    tensor = torch_lattice.SparseTensor(
+        torch.tensor([[10.0], [20.0], [30.0]]),
+        torch.tensor(
+            [[1, 1, 0, 0], [0, 0, 0, 0], [1, 2, 0, 0]],
+            dtype=torch.int32,
+        ),
+        spatial_range=(3, 3, 1, 1),
+    )
+
+    coords, features = tensor.decomposed_coordinates_and_features
+
+    assert [part.tolist() for part in tensor.batch_rows] == [[1], [0, 2], []]
+    assert [part.tolist() for part in coords] == [
+        [[0, 0, 0]],
+        [[1, 0, 0], [2, 0, 0]],
+        [],
+    ]
+    assert [part.tolist() for part in features] == [
+        [[20.0]],
+        [[10.0], [30.0]],
+        [],
+    ]
+
+
+def test_sparse_pruning_keeps_order_and_gradients(
+    selected_device: torch.device,
+) -> None:
+    feats = torch.tensor(
+        [[1.0], [2.0], [3.0]],
+        device=selected_device,
+        requires_grad=True,
+    )
+    tensor = torch_lattice.SparseTensor(
+        feats,
+        torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0], [1, 2, 0, 0]],
+            dtype=torch.int32,
+            device=selected_device,
+        ),
+        spatial_range=(2, 3, 1, 1),
+    )
+
+    indexed = torch_lattice.prune(
+        tensor,
+        torch.tensor([2, 0], dtype=torch.int64, device=selected_device),
+    )
+    masked = torch_lattice.prune_mask(
+        tensor,
+        torch.tensor([True, False, True], device=selected_device),
+    )
+
+    assert indexed.coords.tolist() == [[1, 2, 0, 0], [0, 0, 0, 0]]
+    assert masked.coords.tolist() == [[0, 0, 0, 0], [1, 2, 0, 0]]
+    indexed.feats.sum().backward()
+    torch.testing.assert_close(
+        feats.grad,
+        torch.tensor([[1.0], [0.0], [1.0]], device=selected_device),
+    )

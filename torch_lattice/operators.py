@@ -13,6 +13,8 @@ SparseBinaryOp = Literal["add", "sub", "mul", "maximum", "minimum"]
 __all__ = [
     "cat",
     "generative_add",
+    "prune",
+    "prune_mask",
     "reindex_sparse",
     "sparse_add",
     "sparse_binary",
@@ -81,6 +83,35 @@ def reindex_sparse(
         return target.replace(feats=input.feats)
     rows = _coordinate_rows(input.coords, target.coords)
     return target.replace(feats=_gather_aligned(input.feats, rows, fill=fill))
+
+
+def prune(input: SparseTensor, rows: torch.Tensor) -> SparseTensor:
+    """Keep sparse rows in caller-supplied order."""
+    if rows.ndim != 1 or rows.dtype not in (torch.int32, torch.int64):
+        raise ValueError("rows must be a rank-1 integer tensor")
+    if rows.device != input.coords.device:
+        raise ValueError("rows must be on the sparse tensor device")
+    rows = rows.to(torch.long)
+    if rows.shape[0] and (
+        bool(torch.any(rows < 0)) or bool(torch.any(rows >= input.coords.shape[0]))
+    ):
+        raise ValueError("rows must index sparse tensor rows")
+    return input.with_coordinates(
+        feats=input.feats.index_select(0, rows),
+        coords=input.coords.index_select(0, rows),
+        batch_counts=None,
+    )
+
+
+def prune_mask(input: SparseTensor, mask: torch.Tensor) -> SparseTensor:
+    """Keep sparse rows selected by a boolean mask."""
+    if mask.ndim != 1 or mask.shape[0] != input.coords.shape[0]:
+        raise ValueError("mask must have shape (N,)")
+    if mask.dtype != torch.bool:
+        raise TypeError("mask must use bool dtype")
+    if mask.device != input.coords.device:
+        raise ValueError("mask must be on the sparse tensor device")
+    return prune(input, torch.nonzero(mask, as_tuple=False).flatten())
 
 
 def sparse_add(

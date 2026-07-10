@@ -106,6 +106,10 @@ semantics. Do not mechanically replace every old ``torchsparse.nn.Conv3d`` with
      - ``torch_lattice.reindex_sparse(source, target)``
      - Express the intended exact target support directly; source-only rows
        are discarded and missing target rows use the declared fill value.
+   * - ``MinkowskiPruning()(x, mask)``
+     - ``torch_lattice.prune_mask(x, mask)``
+     - Keep selected rows in their existing order; use ``prune`` for explicit
+       row indices.
    * - ``TrilinearUpsampler(in_channels=C, out_channels=C)``
      - ``TrilinearUpsample3d(stride=2)``
      - Use normalized separable interpolation on generated or target support.
