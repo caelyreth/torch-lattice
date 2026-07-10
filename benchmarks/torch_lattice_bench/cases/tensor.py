@@ -8,6 +8,7 @@ from torch_lattice.operators import (
     generative_add,
     prune_mask,
     reindex_sparse,
+    sparse_from_coordinates,
 )
 
 from torch_lattice_bench.cases.common import (
@@ -35,6 +36,12 @@ def cases(
         group="tensor",
         specs=(
             ("sparse_tensor_construct", _construct, ("n_in",), None),
+            (
+                "sparse_construct_mean_duplicates",
+                _mean_duplicates,
+                ("elements", "n_in"),
+                None,
+            ),
             ("sparse_tensor_to_device_noop", _to_device, ("n_in",), None),
             ("sparse_tensor_half", _half, ("elements",), None),
             ("cat_features", _cat_features, ("elements",), None),
@@ -97,6 +104,17 @@ def cases(
 def _construct(fixture: SparseFixture) -> SparseTensor:
     x = fixture.tensor
     return SparseTensor(x.feats, x.coords, x.stride, x.spatial_range)
+
+
+def _mean_duplicates(fixture: SparseFixture) -> SparseTensor:
+    x = fixture.tensor
+    return sparse_from_coordinates(
+        torch.cat((x.coords, x.coords), dim=0),
+        torch.cat((x.feats, x.feats), dim=0),
+        stride=x.stride,
+        spatial_range=x.spatial_range,
+        duplicate_reduction="mean",
+    )
 
 
 def _to_device(fixture: SparseFixture) -> SparseTensor:

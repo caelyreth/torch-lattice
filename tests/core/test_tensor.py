@@ -4,6 +4,7 @@ import pytest
 import torch
 
 import torch_lattice
+from torch_lattice.utils.collate import sparse_collate
 from tests.support import line_sparse_case
 
 pytestmark = pytest.mark.core
@@ -90,6 +91,83 @@ def test_sparse_tensor_decomposes_noncontiguous_batches() -> None:
         [[10.0], [30.0]],
         [],
     ]
+
+
+def test_sparse_construction_averages_duplicate_coordinates(
+    selected_device: torch.device,
+) -> None:
+    coords = torch.tensor(
+        [[0, 2, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
+        dtype=torch.int32,
+        device=selected_device,
+    )
+    feats = torch.tensor(
+        [[2.0], [5.0], [6.0]],
+        device=selected_device,
+        requires_grad=True,
+    )
+
+    out = torch_lattice.sparse_from_coordinates(
+        coords,
+        feats,
+        batch_counts=(3,),
+        duplicate_reduction="mean",
+    )
+
+    assert out.coords.tolist() == [[0, 2, 0, 0], [0, 1, 0, 0]]
+    torch.testing.assert_close(
+        out.feats,
+        torch.tensor([[4.0], [5.0]], device=selected_device),
+    )
+    assert out.batch_counts == (2,)
+    out.feats.sum().backward()
+    torch.testing.assert_close(
+        feats.grad,
+        torch.tensor([[0.5], [1.0], [0.5]], device=selected_device),
+    )
+
+
+def test_sparse_collate_reduces_duplicates_per_batch(
+    selected_device: torch.device,
+) -> None:
+    inputs = [
+        torch_lattice.SparseTensor(
+            torch.tensor([[2.0], [6.0]], device=selected_device),
+            torch.tensor(
+                [[0, 0, 0, 0], [0, 0, 0, 0]],
+                dtype=torch.int32,
+                device=selected_device,
+            ),
+        ),
+        torch_lattice.SparseTensor(
+            torch.tensor([[9.0]], device=selected_device),
+            torch.tensor(
+                [[0, 0, 0, 0]],
+                dtype=torch.int32,
+                device=selected_device,
+            ),
+        ),
+    ]
+
+    out = sparse_collate(inputs, duplicate_reduction="mean")
+
+    assert out.coords.tolist() == [[0, 0, 0, 0], [1, 0, 0, 0]]
+    torch.testing.assert_close(
+        out.feats,
+        torch.tensor([[4.0], [9.0]], device=selected_device),
+    )
+    assert out.batch_counts == (1, 1)
+
+
+def test_sparse_construction_validates_duplicate_reduction() -> None:
+    case = line_sparse_case(channels=1)
+
+    with pytest.raises(ValueError, match="duplicate_reduction"):
+        torch_lattice.sparse_from_coordinates(
+            case.coords,
+            case.feats,
+            duplicate_reduction="sum",  # type: ignore[arg-type]
+        )
 
 
 def test_sparse_pruning_keeps_order_and_gradients(

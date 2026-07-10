@@ -113,6 +113,10 @@ semantics. Do not mechanically replace every old ``torchsparse.nn.Conv3d`` with
    * - ``TrilinearUpsampler(in_channels=C, out_channels=C)``
      - ``TrilinearUpsample3d(stride=2)``
      - Use normalized separable interpolation on generated or target support.
+   * - ``ME.SparseTensor(..., quantization_mode=UNWEIGHTED_AVERAGE)``
+     - ``tl.sparse_from_coordinates(..., duplicate_reduction='mean')``
+     - Average exact duplicate input rows while retaining first-occurrence
+       coordinate order.
 
 A useful check while porting is to compare coordinate counts before and after a
 layer. If the original layer was intended to keep exactly the same coordinate set,

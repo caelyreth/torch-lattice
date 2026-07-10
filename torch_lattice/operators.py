@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 import torch
@@ -9,6 +10,7 @@ from torch_lattice.tensor import SparseTensor
 
 SparseJoin = Literal["inner", "left", "right", "outer"]
 SparseBinaryOp = Literal["add", "sub", "mul", "maximum", "minimum"]
+DuplicateReduction = Literal["none", "mean"]
 
 __all__ = [
     "cat",
@@ -19,11 +21,96 @@ __all__ = [
     "sparse_add",
     "sparse_binary",
     "sparse_cat",
+    "sparse_from_coordinates",
     "sparse_maximum",
     "sparse_minimum",
     "sparse_mul",
     "sparse_sub",
 ]
+
+
+def sparse_from_coordinates(
+    coords: torch.Tensor,
+    feats: torch.Tensor,
+    *,
+    stride: int | Sequence[int] = 1,
+    spatial_range: int | Sequence[int] | None = None,
+    batch_counts: Sequence[int] | None = None,
+    duplicate_reduction: DuplicateReduction = "none",
+) -> SparseTensor:
+    """Construct a sparse tensor with explicit duplicate-row semantics."""
+    value = SparseTensor(
+        feats,
+        coords,
+        stride,
+        spatial_range,
+        batch_counts=batch_counts,
+    )
+    if duplicate_reduction == "none":
+        return value
+    if duplicate_reduction != "mean":
+        raise ValueError("duplicate_reduction must be 'none' or 'mean'.")
+
+    unique, inverse, counts = torch.unique(
+        value.coords,
+        dim=0,
+        return_inverse=True,
+        return_counts=True,
+    )
+    order = _first_occurrence_order(inverse, unique.shape[0])
+    unique = unique.index_select(0, order)
+    counts = counts.index_select(0, order)
+    remap = torch.empty_like(order)
+    remap.scatter_(
+        0,
+        order,
+        torch.arange(order.shape[0], device=order.device),
+    )
+    inverse = remap.index_select(0, inverse)
+    summed = value.feats.new_zeros((unique.shape[0], value.feats.shape[1]))
+    summed.index_add_(0, inverse, value.feats)
+    averaged = summed / counts.to(value.feats.dtype).unsqueeze(1)
+    return SparseTensor(
+        averaged,
+        unique,
+        value.stride,
+        value.spatial_range,
+        batch_counts=_deduplicated_batch_counts(batch_counts, unique),
+    )
+
+
+def _first_occurrence_order(
+    inverse: torch.Tensor,
+    unique_rows: int,
+) -> torch.Tensor:
+    first = torch.full(
+        (unique_rows,),
+        inverse.shape[0],
+        dtype=torch.long,
+        device=inverse.device,
+    )
+    positions = torch.arange(inverse.shape[0], device=inverse.device)
+    first.scatter_reduce_(
+        0,
+        inverse,
+        positions,
+        reduce="amin",
+        include_self=True,
+    )
+    return torch.argsort(first)
+
+
+def _deduplicated_batch_counts(
+    declared: Sequence[int] | None,
+    coords: torch.Tensor,
+) -> tuple[int, ...] | None:
+    if declared is None:
+        return None
+    return tuple(
+        torch.bincount(coords[:, 0].to(torch.long), minlength=len(declared))
+        .cpu()
+        .tolist()
+    )
 
 
 def cat(

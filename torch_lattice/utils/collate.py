@@ -1,14 +1,22 @@
-from typing import Any, List
+from typing import Any
 
 import numpy as np
 import torch
 
-from torch_lattice import SparseTensor
+from torch_lattice.operators import (
+    DuplicateReduction,
+    sparse_from_coordinates,
+)
+from torch_lattice.tensor import SparseTensor
 
 __all__ = ["sparse_collate", "sparse_collate_fn"]
 
 
-def sparse_collate(inputs: List[SparseTensor]) -> SparseTensor:
+def sparse_collate(
+    inputs: list[SparseTensor],
+    *,
+    duplicate_reduction: DuplicateReduction = "none",
+) -> SparseTensor:
     if not inputs:
         raise ValueError("sparse_collate requires at least one tensor")
     coords, feats = [], []
@@ -26,16 +34,17 @@ def sparse_collate(inputs: List[SparseTensor]) -> SparseTensor:
 
     coords = torch.cat(coords, dim=0)
     feats = torch.cat(feats, dim=0)
-    output = SparseTensor(
+    output = sparse_from_coordinates(
         coords=coords,
         feats=feats,
         stride=stride,
         batch_counts=tuple(int(x.coords.shape[0]) for x in inputs),
+        duplicate_reduction=duplicate_reduction,
     )
     return output
 
 
-def sparse_collate_fn(inputs: List[Any]) -> Any:
+def sparse_collate_fn(inputs: list[Any]) -> Any:
     if isinstance(inputs[0], dict):
         output = {}
         for name in inputs[0].keys():
