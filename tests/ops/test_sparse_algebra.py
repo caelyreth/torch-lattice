@@ -13,10 +13,13 @@ pytestmark = [pytest.mark.ops, pytest.mark.feature]
 
 
 def _params() -> list[pytest.ParameterSet]:
-    return [pytest.param(case, id=case.name, marks=case.marks) for case in algebra_cases.cases()]
+    return [
+        pytest.param(case, id=case.name, marks=case.marks)
+        for case in algebra_cases.cases()
+    ]
 
 
-@pytest.mark.parametrize('case', _params())
+@pytest.mark.parametrize("case", _params())
 def test_sparse_algebra_value_cases(case: ValueCase) -> None:
     assert case.run() == case.expected
 
@@ -40,7 +43,8 @@ def test_generative_add_shared_coords_uses_sparse_add_fast_path():
     out = generative_add(a, b)
 
     assert out.coords.data_ptr() == coords.data_ptr()
-    assert out._caches is a._caches
+    assert out.coord_manager is a.coord_manager
+    assert out.coord_key == a.coord_key
     torch.testing.assert_close(out.coords, coords)
     torch.testing.assert_close(out.feats, a.feats + b.feats)
 
@@ -97,8 +101,6 @@ def test_generative_add_shifted_coords_keeps_union_semantics():
     torch.testing.assert_close(out.feats, expected_feats)
 
 
-
-
 def test_sparse_binary_alignment_join_and_fill_semantics():
     lhs = torch_lattice.SparseTensor(
         torch.tensor([[1.0], [2.0], [3.0]]),
@@ -151,6 +153,26 @@ def test_sparse_cat_outer_aligns_missing_rows_with_zero_features():
     torch.testing.assert_close(out.feats, expected_feats)
 
 
+def test_sparse_outer_join_accepts_empty_operand():
+    lhs = torch_lattice.SparseTensor(
+        torch.empty((0, 1)),
+        torch.empty((0, 4), dtype=torch.int32),
+        spatial_range=(1, 2, 1, 1),
+        batch_counts=(0,),
+    )
+    rhs = torch_lattice.SparseTensor(
+        torch.tensor([[2.0], [3.0]]),
+        torch.tensor([[0, 0, 0, 0], [0, 1, 0, 0]], dtype=torch.int32),
+        spatial_range=(1, 2, 1, 1),
+        batch_counts=(2,),
+    )
+
+    out = torch_lattice.sparse_add(lhs, rhs, join="outer")
+
+    torch.testing.assert_close(out.coords, rhs.coords)
+    torch.testing.assert_close(out.feats, rhs.feats)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 def test_generative_add_shifted_cuda_matches_reference_by_coordinate():
     coords = torch.tensor(
@@ -198,5 +220,3 @@ def test_generative_add_shifted_cuda_matches_reference_by_coordinate():
     expected_order = torch.argsort(sphash(expected_coords))
     torch.testing.assert_close(out.coords[out_order], expected_coords[expected_order])
     torch.testing.assert_close(out.feats[out_order], expected_feats[expected_order])
-
-

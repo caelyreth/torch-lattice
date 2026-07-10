@@ -1,0 +1,38 @@
+{
+  "input": {
+    "channels": 4,
+    "batch_size": 1,
+    "spatial_shape": [
+      3,
+      2,
+      2
+    ],
+    "rows_per_batch": [
+      9
+    ],
+    "stride": [
+      1,
+      1,
+      1
+    ]
+  },
+  "ops": [
+    "conv1:4->8",
+    "LeakyReLU",
+    "subm1:8->4",
+    "subm3_d2:4->8",
+    "Softplus",
+    "subm3:8->8",
+    "global_avg_pool",
+    "linear:8->2"
+  ],
+  "train_steps": 1,
+  "quantize_bits": null,
+  "name": "0000_sparse_classifier_7c00b06f",
+  "family": "sparse_classifier",
+  "seed": 2080419951,
+  "output_kind": "dense",
+  "input_mode": "sparse_kwargs",
+  "rtol": 0.002,
+  "atol": 0.002
+}

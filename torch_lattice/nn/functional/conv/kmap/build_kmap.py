@@ -1,14 +1,22 @@
 from typing import Dict, Tuple, Union
 import math
-import numpy as np
 import torch
 
 import torch_lattice.backend
 from torch_lattice.utils import make_ntuple, make_tensor, make_divisible
 
-from .func import *
+from .func.hashmap import (
+    build_kmap_Fetch_on_Demand_hashmap,
+    build_kmap_Gather_Scatter_hashmap,
+    build_kmap_implicit_GEMM_hashmap,
+)
+from .func.hashmap_on_the_fly import (
+    build_kmap_Fetch_on_Demand_hashmap_on_the_fly,
+    build_kmap_Gather_Scatter_hashmap_on_the_fly,
+    build_kmap_implicit_GEMM_hashmap_on_the_fly,
+)
 
-from ..conv_config import *
+from ..conv_config import Dataflow
 
 __all__ = ["build_kernel_map", "transpose_kernel_map"]
 
@@ -59,7 +67,7 @@ def build_kernel_map(
     padding: Union[int, Tuple[int, ...]] = 0,
     hashmap_keys: torch.Tensor = None,
     hashmap_vals: torch.Tensor = None,
-    spatial_range: int = None,
+    spatial_range: tuple[int, ...] | None = None,
     mode="hashmap",
     dataflow=Dataflow.ImplicitGEMM,
     downsample_mode="spconv",
@@ -101,13 +109,10 @@ def build_kernel_map(
     stride = make_ntuple(stride, ndim=3)
     kernel_size = make_ntuple(kernel_size, ndim=3)
     padding = make_ntuple(padding, ndim=3)
-    can_compact_active_offsets = (
-        (dataflow == Dataflow.ImplicitGEMM and not ifsort)
-        or (
-            dataflow in (Dataflow.GatherScatter, Dataflow.FetchOnDemand)
-            and not training
-            and inference
-        )
+    can_compact_active_offsets = (dataflow == Dataflow.ImplicitGEMM and not ifsort) or (
+        dataflow in (Dataflow.GatherScatter, Dataflow.FetchOnDemand)
+        and not training
+        and inference
     )
     active_kernel_offset_list = (
         _active_kernel_offset_list(
@@ -196,7 +201,6 @@ def build_kernel_map(
             )
 
     elif mode == "hashmap":
-
         if dataflow == Dataflow.ImplicitGEMM:
             kmap = build_kmap_implicit_GEMM_hashmap(
                 kmap,
@@ -250,9 +254,6 @@ def build_kernel_map(
             raise ValueError(
                 "[Build kernel map] unsupported dataflow: {}".format(dataflow)
             )
-
-    elif mode == "grid":
-        assert 0, "grid mode is temporarily deprecated."
 
     else:
         raise ValueError("[Build kernel map] unknown mode: {}".format(mode))

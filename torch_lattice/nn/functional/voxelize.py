@@ -5,8 +5,6 @@ from typing import Literal
 import torch
 from torch.autograd import Function
 
-# from torch.cuda.amp import custom_bwd, custom_fwd
-
 import torch_lattice.backend
 from torch_lattice import SparseTensor
 from torch_lattice.utils import make_ntuple
@@ -16,7 +14,6 @@ __all__ = ["spvoxelize", "voxelize"]
 
 class VoxelizeFunction(Function):
     @staticmethod
-    # @custom_fwd(cast_inputs=torch.half)
     def forward(
         ctx, feats: torch.Tensor, coords: torch.Tensor, counts: torch.Tensor
     ) -> torch.Tensor:
@@ -37,7 +34,6 @@ class VoxelizeFunction(Function):
         return output.to(feats.dtype)
 
     @staticmethod
-    # @custom_bwd
     def backward(ctx, grad_output: torch.Tensor):
         coords, counts, input_size = ctx.for_backwards
         grad_output = grad_output.contiguous()
@@ -122,9 +118,13 @@ def _active_point_rows(points, features, batch_indices, active_rows):
     if features.ndim != 2 or features.shape[0] != points.shape[0]:
         raise ValueError("features must have shape (N, C) with the same N as points.")
     if batch_indices is None:
-        batch_indices = torch.zeros(points.shape[0], dtype=torch.int64, device=points.device)
+        batch_indices = torch.zeros(
+            points.shape[0], dtype=torch.int64, device=points.device
+        )
     if active_rows is not None:
-        active = int(active_rows.item() if isinstance(active_rows, torch.Tensor) else active_rows)
+        active = int(
+            active_rows.item() if isinstance(active_rows, torch.Tensor) else active_rows
+        )
         points = points[:active]
         features = features[:active]
         batch_indices = batch_indices[:active]

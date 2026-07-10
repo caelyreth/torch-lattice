@@ -23,17 +23,17 @@ class ToBEVReduction(nn.Module):
         return f"dim = {self.dim}"
 
     def forward(self, input: SparseTensor) -> SparseTensor:
-        coords, feats, stride = input.coords, input.feats, input.stride
+        coords, feats = input.coords, input.feats
 
         coords = coords.clone()
         coords[:, self.dim] = 0
         feats = torch.cat([torch.ones_like(feats[:, :1]), feats], axis=1)
-        tensor = torch.sparse_coo_tensor(coords.t().long(), feats).coalesce()
+        tensor = torch.sparse_coo_tensor(
+            coords.t().long(), feats, check_invariants=False
+        ).coalesce()
         coords = tensor.indices().t().int()
         feats = tensor.values()[:, 1:] / tensor.values()[:, :1]
-        output = SparseTensor(coords=coords, feats=feats, stride=stride)
-        output._caches = input._caches
-        return output
+        return input.with_coordinates(feats=feats, coords=coords)
 
 
 class ToDenseBEVConvolution(nn.Module):
@@ -207,14 +207,14 @@ class ToBEVHeightCompression(nn.Module):
 
     def forward(self, input: SparseTensor) -> torch.Tensor:
         coords, feats, stride = input.coords, input.feats, input.stride
-        stride = torch.tensor(stride, dtype=coords.dtype, device=coords.device).unsqueeze(dim=0)
-        assert isinstance(stride, torch.Tensor), type(stride)
+        stride = torch.tensor(
+            stride, dtype=coords.dtype, device=coords.device
+        ).unsqueeze(dim=0)
 
         # [b, x, y, z]
         coords = (coords - self.offset).t()[[0] + self.bev_dims + [self.dim]].long()
         shape = self.shape[[i - 1 for i in self.bev_dims + [self.dim]]]
 
-        # now stride must be torch.Tensor since input.s is tuple.
         stride = stride[:, [i - 1 for i in self.bev_dims + [self.dim]]].t()
 
         coords[1:] = torch.div(coords[1:], stride, rounding_mode="trunc")
@@ -225,7 +225,15 @@ class ToBEVHeightCompression(nn.Module):
             + coords[2] * int(shape[2])
             + coords[3]
         )
-        batch_size = coords[0].max().item() + 1
+        batch_size = (
+            len(input.batch_counts)
+            if input.batch_counts is not None
+            else input.spatial_range[0]
+            if input.spatial_range is not None
+            else int(coords[0].max().item()) + 1
+            if coords.shape[1] > 0
+            else 0
+        )
         output = torch.sparse_coo_tensor(
             indices.unsqueeze(dim=0),
             feats,

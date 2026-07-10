@@ -12,6 +12,7 @@ from tests.conftest import cuda_required
 
 pytestmark = pytest.mark.core
 
+
 def test_generate_feature_map_returns_batch_first_coords():
     sparse = generate_feature_map((3, 4, 5), [6, 6], 2, dtype=np.float32)
     coords = sparse["coords"]
@@ -37,7 +38,9 @@ def test_spcrop_uses_spatial_xyz_not_batch_column():
         device="cuda",
     )
     feats = torch.arange(coords.size(0), dtype=torch.float32, device="cuda").view(-1, 1)
-    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(2, 3, 2, 3))
+    tensor = torch_lattice.SparseTensor(
+        feats=feats, coords=coords, spatial_range=(2, 3, 2, 3)
+    )
 
     cropped = F.spcrop(tensor, coords_min=(0, 0, 1), coords_max=(2, 2, 3))
 
@@ -95,7 +98,9 @@ def test_kernel_hash_offsets_apply_to_xyz_on_cpu_and_cuda():
         ],
         dim=0,
     )
-    expected = torch.stack([sphash(expected_coords[i]) for i in range(offsets_cpu.size(0))])
+    expected = torch.stack(
+        [sphash(expected_coords[i]) for i in range(offsets_cpu.size(0))]
+    )
 
     assert torch.equal(cpu_hash, expected)
     assert torch.equal(cuda_hash, expected)
@@ -116,7 +121,9 @@ def test_bev_modules_default_to_z_coordinate_dim(module_cls):
         device="cuda",
     )
     feats = torch.ones((coords.size(0), 1), dtype=torch.float32, device="cuda")
-    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 3, 3, 4))
+    tensor = torch_lattice.SparseTensor(
+        feats=feats, coords=coords, spatial_range=(1, 3, 3, 4)
+    )
 
     out = module(tensor)
 
@@ -132,7 +139,9 @@ def test_bev_height_compression_default_uses_z_coordinate_dim():
         device="cuda",
     )
     feats = torch.ones((coords.size(0), 1), dtype=torch.float32, device="cuda")
-    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 3, 4, 5))
+    tensor = torch_lattice.SparseTensor(
+        feats=feats, coords=coords, spatial_range=(1, 3, 4, 5)
+    )
 
     out = module(tensor)
 
@@ -156,11 +165,13 @@ def test_compact_on_the_fly_kmap_uses_int32_hashmap():
         device="cuda",
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
-    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
+    tensor = torch_lattice.SparseTensor(
+        feats=feats, coords=coords, spatial_range=(1, 4, 1, 1)
+    )
 
     try:
         spnn.SubmConv3d(4, 4, kernel_size=3, bias=False).cuda().half()(tensor)
-        hashmap_keys, _ = tensor._caches.hashmaps[(1, 1, 1)]
+        hashmap_keys, _ = tensor.coord_manager.cached_hashmaps[0]
     finally:
         F.conv_config.clear_global_conv_config()
 
@@ -194,9 +205,11 @@ def test_wide_coordinate_stride2_conv_uses_int64_kmap_safely():
     )
 
     try:
-        out = spnn.Conv3d(4, 4, kernel_size=2, stride=2, bias=False).cuda().half()(tensor)
+        out = (
+            spnn.Conv3d(4, 4, kernel_size=2, stride=2, bias=False).cuda().half()(tensor)
+        )
         torch.cuda.synchronize()
-        hashmap_keys, _ = tensor._caches.hashmaps[(2, 2, 2)]
+        hashmap_keys, _ = tensor.coord_manager.cached_hashmaps[0]
     finally:
         F.conv_config.clear_global_conv_config()
 
@@ -219,7 +232,9 @@ def test_fetch_on_demand_fused_falls_back_for_large_quantified_map():
         dim=1,
     ).contiguous()
     feats = torch.randn((coords.size(0), 32), dtype=torch.float16, device="cuda")
-    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 64, 64, 64))
+    tensor = torch_lattice.SparseTensor(
+        feats=feats, coords=coords, spatial_range=(1, 64, 64, 64)
+    )
 
     try:
         out = spnn.SubmConv3d(32, 32, kernel_size=3, bias=False).cuda().half()(tensor)
@@ -238,7 +253,9 @@ def test_kernel_map_cache_is_separated_by_dataflow():
         device="cuda",
     )
     feats = torch.randn((coords.size(0), 4), dtype=torch.float16, device="cuda")
-    tensor = torch_lattice.SparseTensor(feats=feats, coords=coords, spatial_range=(1, 4, 1, 1))
+    tensor = torch_lattice.SparseTensor(
+        feats=feats, coords=coords, spatial_range=(1, 4, 1, 1)
+    )
     conv = spnn.SubmConv3d(4, 4, kernel_size=3, bias=False).cuda().half()
 
     config = F.conv_config.get_default_conv_config().copy()
@@ -257,8 +274,10 @@ def test_kernel_map_cache_is_separated_by_dataflow():
     finally:
         F.conv_config.clear_global_conv_config()
 
-    assert len(tensor._caches.kmaps) == 2
-    assert all(kmap.get("qmapsize") is None for kmap in tensor._caches.kmaps.values())
+    assert tensor.coord_manager.relation_count == 2
+    assert all(
+        kmap.get("qmapsize") is None for kmap in tensor.coord_manager.cached_relations
+    )
 
 
 @cuda_required
@@ -282,7 +301,7 @@ def test_fetch_on_demand_fusion_flag_controls_quantified_kmap_metadata():
         )
         conv(no_fusion)
         torch.cuda.synchronize()
-        no_fusion_kmap = next(iter(no_fusion._caches.kmaps.values()))
+        no_fusion_kmap = no_fusion.coord_manager.cached_relations[0]
 
         config.FOD_fusion = True
         F.conv_config.set_global_conv_config(config)
@@ -291,7 +310,7 @@ def test_fetch_on_demand_fusion_flag_controls_quantified_kmap_metadata():
         )
         conv(fused)
         torch.cuda.synchronize()
-        fused_kmap = next(iter(fused._caches.kmaps.values()))
+        fused_kmap = fused.coord_manager.cached_relations[0]
     finally:
         F.conv_config.clear_global_conv_config()
 

@@ -1,4 +1,4 @@
-from typing import List
+from collections.abc import Sequence
 
 from torch import nn
 
@@ -15,13 +15,17 @@ class SparseResUNet(nn.Module):
     def __init__(
         self,
         stem_channels: int,
-        encoder_channels: List[int],
-        decoder_channels: List[int],
+        encoder_channels: Sequence[int],
+        decoder_channels: Sequence[int],
         *,
         in_channels: int = 4,
         width_multiplier: float = 1.0,
     ) -> None:
         super().__init__()
+        if len(encoder_channels) != 4 or len(decoder_channels) != 4:
+            raise ValueError(
+                "SparseResUNet requires four encoder and four decoder stages"
+            )
         self.stem_channels = stem_channels
         self.encoder_channels = encoder_channels
         self.decoder_channels = decoder_channels
@@ -39,10 +43,6 @@ class SparseResUNet(nn.Module):
             spnn.BatchNorm(num_channels[0]),
             spnn.ReLU(True),
         )
-
-        # TODO(Zhijian): the current implementation of encoder and decoder
-        # is hard-coded for 4 encoder stages and 4 decoder stages. We should
-        # work on a more generic implementation in the future.
 
         self.encoders = nn.ModuleList()
         for k in range(4):
@@ -91,7 +91,7 @@ class SparseResUNet(nn.Module):
         x: SparseTensor,
         encoders: nn.ModuleList,
         decoders: nn.ModuleList,
-    ) -> List[SparseTensor]:
+    ) -> list[SparseTensor]:
         if not encoders and not decoders:
             return [x]
 
@@ -108,7 +108,7 @@ class SparseResUNet(nn.Module):
 
         return [x] + outputs + [y]
 
-    def forward(self, x: SparseTensor) -> List[SparseTensor]:
+    def forward(self, x: SparseTensor) -> list[SparseTensor]:
         return self._unet_forward(self.stem(x), self.encoders, self.decoders)
 
 

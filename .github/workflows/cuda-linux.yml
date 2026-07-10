@@ -77,7 +77,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ccache
-          key: ${{ runner.os }}-cuda-${{ env.CUDA_VERSION }}-ccache-${{ hashFiles('CMakeLists.txt', 'pyproject.toml', 'torch_lattice/backend/**') }}
+          key: ${{ runner.os }}-cuda-${{ env.CUDA_VERSION }}-ccache-${{ hashFiles('CMakeLists.txt', 'pyproject.toml', 'native/**') }}
           restore-keys: |
             ${{ runner.os }}-cuda-${{ env.CUDA_VERSION }}-ccache-
 
@@ -156,7 +156,7 @@ jobs:
         run: |
           wheel="$(ls dist/torch_lattice-*.whl)"
           python -m zipfile -e "$wheel" .wheel-linkage
-          extension="$(find .wheel-linkage/torch_lattice -name 'backend*.so' -print -quit)"
+          extension="$(find .wheel-linkage/torch_lattice -name '_C*.so' -print -quit)"
           test -n "$extension"
           ldd "$extension"
 
@@ -166,10 +166,12 @@ jobs:
           "$RUNNER_TEMP/wheel-test/bin/python" - <<'PY'
           import torch
           import torch_lattice
+          from torch_lattice import _C
           import torch_lattice.backend as backend
 
           assert torch_lattice.__version__
           assert torch.version.cuda is not None
+          assert _C is not None
           assert backend is not None
           PY
 

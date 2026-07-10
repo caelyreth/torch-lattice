@@ -9,7 +9,12 @@ import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
 
-from torch_lattice_bench.datasets import SparseFixture, fresh_sparse, params_matrix, sparse_fixture
+from torch_lattice_bench.datasets import (
+    SparseFixture,
+    fresh_sparse,
+    params_matrix,
+    sparse_fixture,
+)
 from torch_lattice_bench.harness import BenchmarkCase
 
 
@@ -39,17 +44,22 @@ class SparseClassifier(torch.nn.Module):
 
 
 class SparseResidual(torch.nn.Module):
-    def __init__(self, channels: int, *, merge: Literal['add', 'cat']) -> None:
+    def __init__(self, channels: int, *, merge: Literal["add", "cat"]) -> None:
         super().__init__()
         self.left = spnn.Conv3d(channels, channels, kernel_size=1, bias=False)
         self.right = spnn.Conv3d(channels, channels, kernel_size=1, bias=False)
-        self.tail = spnn.Conv3d(channels * 2 if merge == 'cat' else channels, channels, kernel_size=1, bias=True)
+        self.tail = spnn.Conv3d(
+            channels * 2 if merge == "cat" else channels,
+            channels,
+            kernel_size=1,
+            bias=True,
+        )
         self.merge = merge
 
     def forward(self, x: SparseTensor) -> SparseTensor:
         lhs = self.left(x)
         rhs = self.right(x)
-        if self.merge == 'cat':
+        if self.merge == "cat":
             merged = torch_lattice.cat([lhs, rhs])
         else:
             merged = lhs + rhs
@@ -65,24 +75,40 @@ def cases(
     dtype: str,
     device: torch.device,
 ) -> tuple[BenchmarkCase, ...]:
-    params = params_matrix(preset, n_values=n_values, channels=channels, layouts=layouts, dtype=dtype)
+    params = params_matrix(
+        preset, n_values=n_values, channels=channels, layouts=layouts, dtype=dtype
+    )
     return (
-        _case('sparse_classifier_module', params, device, lambda c: SparseClassifier(c)),
-        _case('sparse_residual_add_module', params, device, lambda c: SparseResidual(c, merge='add')),
-        _case('sparse_residual_cat_module', params, device, lambda c: SparseResidual(c, merge='cat')),
-        _case('activation_chain_module', params, device, _activation_chain),
+        _case(
+            "sparse_classifier_module", params, device, lambda c: SparseClassifier(c)
+        ),
+        _case(
+            "sparse_residual_add_module",
+            params,
+            device,
+            lambda c: SparseResidual(c, merge="add"),
+        ),
+        _case(
+            "sparse_residual_cat_module",
+            params,
+            device,
+            lambda c: SparseResidual(c, merge="cat"),
+        ),
+        _case("activation_chain_module", params, device, _activation_chain),
     )
 
 
 def _case(name, params, device, factory) -> BenchmarkCase:
     return BenchmarkCase(
         name=name,
-        group='nn',
+        group="nn",
         params=params,
-        setup=lambda p, device=device, factory=factory: _setup(dict(p), device, factory),
+        setup=lambda p, device=device, factory=factory: _setup(
+            dict(p), device, factory
+        ),
         prepare=_prepare,
         run=_run,
-        units=('elements',),
+        units=("elements",),
     )
 
 

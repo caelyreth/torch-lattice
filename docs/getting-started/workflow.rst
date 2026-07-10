@@ -10,7 +10,7 @@ side.
         |
         |  export artifact bundle
         v
-   graph.mlir + weights.safetensors + metadata
+   graph.mlir + weights.safetensors
         |
         |  copy or publish as a model artifact
         v
@@ -21,9 +21,9 @@ Authoring phase
 
 Use Torch modules while training, validating, and running CUDA-side experiments.
 Keep sparse support behavior explicit in the model architecture: choose
-``SubmConv3d`` when support must be preserved, ``Conv3d`` when support should be
-generated, and ``TargetConv3d`` when a target coordinate set is provided by the
-caller.
+``SubmConv3d`` when support must be preserved and ``Conv3d`` when support should
+be generated. To compute only on caller-owned support, call the same ``Conv3d``
+module with ``coordinates=target``.
 
 Export phase
 ------------
@@ -32,7 +32,9 @@ The exporter traces the model with ``torch.fx`` and writes:
 
 * ``graph.mlir`` for sparse graph structure;
 * ``weights.safetensors`` for tensor payloads;
-* metadata that describes named graph inputs, outputs, and artifact versioning.
+
+Input/output names, dialect version, schema digest, and weight-file identity are
+module attributes inside ``graph.mlir``; there is no sidecar metadata file.
 
 The graph representation is intentionally not a Python pickle. It is a stable
 exchange boundary between the CUDA training project and the MLX deployment

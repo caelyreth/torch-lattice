@@ -4,13 +4,8 @@ import warnings
 import torch
 from torch.autograd import Function
 
-# from torch.cuda.amp import custom_bwd, custom_fwd
-
 import torch_lattice
 import torch_lattice.backend
-
-# TODO: Fetch_on_demand do not have backward kernels now.
-#       Using Gather_Scatter for backward propogation.
 
 __all__ = ["FetchOnDemandConvolutionFuntion", "fetch_on_demand_forward_no_grad"]
 
@@ -21,7 +16,9 @@ def _select_active_weight(weight: torch.Tensor, kmap: Dict) -> torch.Tensor:
     active_kernel_offsets = kmap.get("active_kernel_offsets")
     if active_kernel_offsets is None:
         return weight
-    active_kernel_offsets = active_kernel_offsets.to(device=weight.device, dtype=torch.long)
+    active_kernel_offsets = active_kernel_offsets.to(
+        device=weight.device, dtype=torch.long
+    )
     weight_cache_key = (
         int(weight.data_ptr()),
         int(getattr(weight, "_version", 0)),
@@ -59,7 +56,7 @@ def _fetch_on_demand_forward_impl(
     nbsizes_cpu = nbsizes_cpu if nbsizes_cpu is not None else nbsizes.cpu()
 
     if input.device.type != "cuda":
-        raise NotImplementedError
+        raise NotImplementedError("fetch-on-demand convolution requires CUDA")
 
     if torch.float16 in [input.dtype, weight.dtype]:
         input = input.to(torch.float16)
@@ -98,8 +95,10 @@ def _fetch_on_demand_forward_impl(
 
     qmapsize = kmap.get("qmapsize")
     qmapsize_int = (
-        int(qmapsize.item()) if hasattr(qmapsize, "item") else int(qmapsize)
-    ) if qmapsize is not None else 0
+        (int(qmapsize.item()) if hasattr(qmapsize, "item") else int(qmapsize))
+        if qmapsize is not None
+        else 0
+    )
     use_fusion = (
         config["FOD_fusion"]
         and qmapsize_int > 0
@@ -178,7 +177,6 @@ class FetchOnDemandConvolutionFuntion(Function):
         config: Dict,
         transposed: bool = False,
     ) -> torch.Tensor:
-
         """if transposed:
             input_nbmaps = kmap["nbmaps"][1, :]
             output_nbmaps = kmap["nbmaps"][0, :]
@@ -256,5 +254,7 @@ class FetchOnDemandConvolutionFuntion(Function):
                 transposed,
             )
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                f"fetch-on-demand backward is not implemented for {grad_output.device.type}"
+            )
         return (grad_input, grad_weight, None, None, None, None)

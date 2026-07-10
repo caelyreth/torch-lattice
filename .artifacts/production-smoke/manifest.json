@@ -1,0 +1,282 @@
+{
+  "schema": "torch_lattice_fuzz_fixtures.v1",
+  "seed": 20260709,
+  "case_count": 8,
+  "device": "cuda",
+  "families": [
+    "sparse_classifier",
+    "sparse_feature_chain",
+    "sparse_branch",
+    "target_branch",
+    "transpose_chain",
+    "generative_transpose",
+    "point_voxel",
+    "quantized_classifier"
+  ],
+  "cases": [
+    {
+      "name": "0000_sparse_classifier_7c00b06f",
+      "family": "sparse_classifier",
+      "seed": 2080419951,
+      "output_kind": "dense",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.002,
+      "atol": 0.002,
+      "input": {
+        "channels": 4,
+        "batch_size": 1,
+        "spatial_shape": [
+          3,
+          2,
+          2
+        ],
+        "rows_per_batch": [
+          9
+        ],
+        "stride": [
+          1,
+          1,
+          1
+        ]
+      },
+      "ops": [
+        "conv1:4->8",
+        "LeakyReLU",
+        "subm1:8->4",
+        "subm3_d2:4->8",
+        "Softplus",
+        "subm3:8->8",
+        "global_avg_pool",
+        "linear:8->2"
+      ],
+      "train_steps": 1,
+      "quantize_bits": null
+    },
+    {
+      "name": "0001_sparse_feature_chain_59254c5c",
+      "family": "sparse_feature_chain",
+      "seed": 1495616604,
+      "output_kind": "sparse",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.002,
+      "atol": 0.002,
+      "input": {
+        "channels": 2,
+        "batch_size": 1,
+        "spatial_shape": [
+          7,
+          2,
+          2
+        ],
+        "rows_per_batch": [
+          10
+        ],
+        "stride": [
+          1,
+          1,
+          1
+        ]
+      },
+      "ops": [
+        "subm1:2->5",
+        "subm1:5->3",
+        "GELU",
+        "LayerNorm",
+        "subm1:3->8",
+        "RMSNorm",
+        "subm1:8->3",
+        "Tanh",
+        "subm1:3->5",
+        "SiLU"
+      ],
+      "train_steps": 1
+    },
+    {
+      "name": "0002_sparse_branch_6c3184bb",
+      "family": "sparse_branch",
+      "seed": 1815184571,
+      "output_kind": "sparse",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.003,
+      "atol": 0.003,
+      "input": {
+        "channels": 4,
+        "batch_size": 2,
+        "spatial_shape": [
+          5,
+          1,
+          1
+        ],
+        "rows_per_batch": [
+          2,
+          2
+        ],
+        "stride": [
+          1,
+          1,
+          1
+        ]
+      },
+      "merge": "cat",
+      "join": "inner",
+      "train_steps": 1,
+      "ops": [
+        "branch_cat:inner",
+        "tail_channels:8"
+      ]
+    },
+    {
+      "name": "0003_target_branch_0a69c763",
+      "family": "target_branch",
+      "seed": 174704483,
+      "output_kind": "sparse",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.003,
+      "atol": 0.003,
+      "input": {
+        "channels": 2,
+        "batch_size": 3,
+        "spatial_shape": [
+          5,
+          2,
+          3
+        ],
+        "rows_per_batch": [
+          9,
+          7,
+          5
+        ],
+        "stride": [
+          1,
+          1,
+          1
+        ]
+      },
+      "target_rows": 17,
+      "train_steps": 1,
+      "ops": [
+        "target_conv:5->3"
+      ]
+    },
+    {
+      "name": "0004_transpose_chain_682b5386",
+      "family": "transpose_chain",
+      "seed": 1747669894,
+      "output_kind": "sparse",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.003,
+      "atol": 0.003,
+      "input": {
+        "channels": 3,
+        "batch_size": 1,
+        "spatial_shape": [
+          6,
+          1,
+          1
+        ],
+        "rows_per_batch": [
+          6
+        ],
+        "stride": [
+          1,
+          1,
+          1
+        ]
+      },
+      "train_steps": 1,
+      "ops": [
+        "conv_stride2",
+        "conv_transpose_stride2"
+      ]
+    },
+    {
+      "name": "0005_generative_transpose_47811358",
+      "family": "generative_transpose",
+      "seed": 1199641432,
+      "output_kind": "sparse",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.003,
+      "atol": 0.003,
+      "input": {
+        "channels": 2,
+        "batch_size": 1,
+        "spatial_shape": [
+          2,
+          1,
+          1
+        ],
+        "rows_per_batch": [
+          2
+        ],
+        "stride": [
+          2,
+          1,
+          1
+        ]
+      },
+      "train_steps": 0,
+      "reference": "python_generative_transpose",
+      "ops": [
+        "generative_conv_transpose_stride2"
+      ]
+    },
+    {
+      "name": "0006_point_voxel_1d91c25c",
+      "family": "point_voxel",
+      "seed": 496091740,
+      "output_kind": "dense",
+      "input_mode": "dense_kwargs",
+      "rtol": 0.0001,
+      "atol": 0.0001,
+      "point_count": 5,
+      "channels": 3,
+      "batch_size": 1,
+      "rows_per_batch": [
+        5
+      ],
+      "reduction": "mean",
+      "interpolation": "nearest",
+      "ops": [
+        "voxelize",
+        "devoxelize"
+      ]
+    },
+    {
+      "name": "0007_quantized_classifier_31147551",
+      "family": "quantized_classifier",
+      "seed": 823424337,
+      "output_kind": "dense",
+      "input_mode": "sparse_kwargs",
+      "rtol": 0.01,
+      "atol": 0.01,
+      "input": {
+        "channels": 2,
+        "batch_size": 2,
+        "spatial_shape": [
+          7,
+          4,
+          2
+        ],
+        "rows_per_batch": [
+          3,
+          9
+        ],
+        "stride": [
+          1,
+          1,
+          1
+        ]
+      },
+      "ops": [
+        "subm3:2->6",
+        "Sigmoid",
+        "subm3_d2:6->6",
+        "Sigmoid",
+        "global_avg_pool",
+        "linear:6->2"
+      ],
+      "train_steps": 1,
+      "quantize_bits": 8
+    }
+  ]
+}

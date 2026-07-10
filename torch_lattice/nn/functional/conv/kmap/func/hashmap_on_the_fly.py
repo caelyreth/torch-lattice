@@ -1,5 +1,4 @@
 from typing import Dict, Tuple, Optional
-import numpy as np
 import torch
 
 import torch_lattice.backend
@@ -11,7 +10,7 @@ _INT32_MAX_SAFE_KEY = 2**31 - 2
 
 
 def _can_use_int32_hashmap(spatial_range: Optional[Tuple[int]]) -> bool:
-    if spatial_range is None or torch_lattice.tensor.get_allow_negative_coordinates():
+    if spatial_range is None:
         return False
 
     key_space = 1
@@ -52,13 +51,7 @@ def build_kmap_implicit_GEMM_hashmap_on_the_fly(
                 coords_max[1:] + 2 * padding - (kernel_size - 1)
             ) // stride
 
-    if torch_lattice.tensor.get_allow_negative_coordinates():
-        coords_min = coords.min(0).values
-        coords_min[1:] = torch.div(
-            coords_min[1:] - 2 * padding + (kernel_size - 1), stride
-        )
-    else:
-        coords_min = make_tensor((0, 0, 0, 0), dtype=torch.int, device=coords.device)
+    coords_min = make_tensor((0, 0, 0, 0), dtype=torch.int, device=coords.device)
 
     use_int32_hashmap = (
         _can_use_int32_hashmap(spatial_range)
@@ -70,7 +63,9 @@ def build_kmap_implicit_GEMM_hashmap_on_the_fly(
         and active_kernel_offsets is not None
         and int(active_kernel_offsets.numel()) > 0
         and hasattr(torch_lattice.backend, "build_kernel_map_subm_hashmap_compact")
-        and hasattr(torch_lattice.backend, "build_kernel_map_subm_hashmap_compact_int32")
+        and hasattr(
+            torch_lattice.backend, "build_kernel_map_subm_hashmap_compact_int32"
+        )
     )
     if subm:
         if use_compact_subm:
@@ -93,9 +88,11 @@ def build_kmap_implicit_GEMM_hashmap_on_the_fly(
         )
     to_insert = False
 
-    assert (
-        torch_lattice.backends.hash_rsv_ratio >= 2
-    ), f"hash_rsv_ratio should be no less than 2, now {torch_lattice.backends.hash_rsv_ratio}."
+    if torch_lattice.backends.hash_rsv_ratio < 2:
+        raise ValueError(
+            "hash_rsv_ratio must be at least 2, got "
+            f"{torch_lattice.backends.hash_rsv_ratio}"
+        )
     hashmap_capacity = max(
         512, int(torch_lattice.backends.hash_rsv_ratio * _coords.shape[0])
     )
@@ -171,10 +168,9 @@ def build_kmap_implicit_GEMM_hashmap_on_the_fly(
         nbsizes = torch.sum(results != -1, dim=1).to(torch.int)
         nbsizes_cpu = nbsizes.cpu().contiguous()
         mid_kernel = nbsizes_cpu.numel() // 2
-        kmap["IGEMM_center_only"] = (
-            int(nbsizes_cpu[mid_kernel]) == int(coords.shape[0])
-            and int(nbsizes_cpu.sum()) == int(coords.shape[0])
-        )
+        kmap["IGEMM_center_only"] = int(nbsizes_cpu[mid_kernel]) == int(
+            coords.shape[0]
+        ) and int(nbsizes_cpu.sum()) == int(coords.shape[0])
     else:
         kmap["IGEMM_center_only"] = False
 
@@ -209,9 +205,8 @@ def build_kmap_Gather_Scatter_hashmap_on_the_fly(
         active_kernel_offsets=active_kernel_offsets,
     )
 
-    if (
-        kmap["out_in_map"].is_cuda
-        and hasattr(torch_lattice.backend, "compact_out_in_map_ordered")
+    if kmap["out_in_map"].is_cuda and hasattr(
+        torch_lattice.backend, "compact_out_in_map_ordered"
     ):
         nbmaps, nbsizes, _, _ = torch_lattice.backend.compact_out_in_map_ordered(
             kmap["out_in_map"]
@@ -274,8 +269,8 @@ def build_kmap_Fetch_on_Demand_hashmap_on_the_fly(
         and kmap["out_in_map"].size(1) >= 9
         and hasattr(torch_lattice.backend, "compact_out_in_map_fod")
     ):
-        nbmaps, nbsizes, nbaddrs, qnbaddrs = torch_lattice.backend.compact_out_in_map_fod(
-            kmap["out_in_map"]
+        nbmaps, nbsizes, nbaddrs, qnbaddrs = (
+            torch_lattice.backend.compact_out_in_map_fod(kmap["out_in_map"])
         )
     else:
         results = torch.t(kmap["out_in_map"]).contiguous()
@@ -285,8 +280,12 @@ def build_kmap_Fetch_on_Demand_hashmap_on_the_fly(
         nbmaps = nbmaps.transpose(0, 1).int()
         if FOD_fusion:
             kernel_volume = nbsizes.size(0)
-            nbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
-            qnbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
+            nbaddrs = torch.zeros(
+                (kernel_volume + 1), dtype=torch.int, device=nbmaps.device
+            )
+            qnbaddrs = torch.zeros(
+                (kernel_volume + 1), dtype=torch.int, device=nbmaps.device
+            )
 
             # Derive quantified arrays
             torch_lattice.backend.exclusive_scan_quantified_wrapper(
@@ -300,10 +299,9 @@ def build_kmap_Fetch_on_Demand_hashmap_on_the_fly(
     if subm and nbsizes_cpu.numel() % 2 == 1:
         mid_kernel = nbsizes_cpu.numel() // 2
         mapsize = nbmaps.size(1)
-        kmap["FOD_center_only"] = (
-            int(nbsizes_cpu[mid_kernel]) == int(mapsize)
-            and int(nbsizes_cpu.sum()) == int(mapsize)
-        )
+        kmap["FOD_center_only"] = int(nbsizes_cpu[mid_kernel]) == int(mapsize) and int(
+            nbsizes_cpu.sum()
+        ) == int(mapsize)
     else:
         kmap["FOD_center_only"] = False
 

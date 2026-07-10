@@ -61,7 +61,9 @@ executable MLX program.
 Convolution classes are explicit:
 
 - `torch_lattice.nn.Conv3d` is forward support-generating sparse convolution and
-  exports to `lattice.conv3d`, including `stride=1`.
+  exports to `lattice.conv3d`, including `stride=1`. Calling the same module as
+  `conv(x, coordinates=target)` exports target-aligned convolution without a
+  separate module class.
 - `torch_lattice.nn.SubmConv3d` is support-preserving submanifold convolution and
   exports to `lattice.subm_conv3d`.
 - `torch_lattice.nn.ConvTranspose3d` exports to `lattice.conv_transpose3d`.

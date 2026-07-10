@@ -13,7 +13,7 @@ def spcrop(
     coords_min: Optional[Tuple[int, ...]] = None,
     coords_max: Optional[Tuple[int, ...]] = None,
 ) -> SparseTensor:
-    coords, feats, stride = input.coords, input.feats, input.stride
+    coords, feats = input.coords, input.feats
     has_min = coords_min is not None
     has_max = coords_max is not None
 
@@ -42,14 +42,7 @@ def spcrop(
             has_min,
             has_max,
         )
-        output = SparseTensor(
-            coords=out_coords,
-            feats=out_feats,
-            stride=stride,
-            spatial_range=input.spatial_range,
-        )
-        output._caches = input._caches
-        return output
+        return input.with_coordinates(feats=out_feats, coords=out_coords)
 
     mask = torch.ones((coords.shape[0], 3), dtype=torch.bool, device=coords.device)
     if coords_min is not None:
@@ -61,18 +54,8 @@ def spcrop(
         coords_max = torch.tensor(
             coords_max, dtype=torch.int, device=coords.device
         ).unsqueeze(dim=0)
-        # Using "<" instead of "<=" is for the backward compatability (in
-        # some existing detection codebase). We might need to reflect this
-        # in the document or change it back to "<=" in the future.
         mask &= coords[:, 1:] < coords_max
 
     mask = torch.all(mask, dim=1)
     coords, feats = coords[mask], feats[mask]
-    output = SparseTensor(
-        coords=coords,
-        feats=feats,
-        stride=stride,
-        spatial_range=input.spatial_range,
-    )
-    output._caches = input._caches
-    return output
+    return input.with_coordinates(feats=feats, coords=coords)

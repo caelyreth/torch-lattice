@@ -3,8 +3,6 @@ from typing import Dict
 import torch
 from torch.autograd import Function
 
-# from torch.cuda.amp import custom_bwd, custom_fwd
-
 import torch_lattice
 import torch_lattice.backend
 import torch_lattice.backends
@@ -12,7 +10,9 @@ import torch_lattice.backends
 __all__ = ["ImplicitGEMMConvolutionFuntion", "implicit_gemm_forward_no_grad"]
 
 
-def _resolve_wgrad_split_k(config: Dict, kernel_volume: int, ifsort: bool = False) -> int:
+def _resolve_wgrad_split_k(
+    config: Dict, kernel_volume: int, ifsort: bool = False
+) -> int:
     value = config.get("wgrad_split_k", "auto")
     if value == "auto":
         if ifsort:
@@ -112,7 +112,7 @@ def _implicit_gemm_forward_impl(
         )
 
     if input.device.type != "cuda":
-        raise NotImplementedError
+        raise NotImplementedError("implicit GEMM convolution requires CUDA")
 
     if torch.float16 in [input.dtype, weight.dtype]:
         input = input.to(torch.float16)
@@ -254,7 +254,7 @@ class ImplicitGEMMConvolutionFuntion(Function):  # TorchLattice++
             return (grad_input, grad_weight, None, None, None)
 
         if grad_output.device.type != "cuda":
-            raise NotImplementedError
+            raise NotImplementedError("implicit GEMM backward requires CUDA")
 
         if ifsort and kernel_volume < 32:  # sort mode
             # dgrad
@@ -320,7 +320,11 @@ class ImplicitGEMMConvolutionFuntion(Function):  # TorchLattice++
         if grad_weight is not None and active_kernel_offsets is not None:
             grad_weight_runtime = grad_weight
             grad_weight = torch.zeros(
-                (full_kernel_volume, grad_weight_runtime.size(1), grad_weight_runtime.size(2)),
+                (
+                    full_kernel_volume,
+                    grad_weight_runtime.size(1),
+                    grad_weight_runtime.size(2),
+                ),
                 dtype=grad_weight_runtime.dtype,
                 device=grad_weight_runtime.device,
             )

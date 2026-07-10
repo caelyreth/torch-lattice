@@ -20,12 +20,12 @@ def cases(
 ) -> tuple[BenchmarkCase, ...]:
     return sparse_cases(
         preset,
-        group='hash',
+        group="hash",
         specs=(
-            ('sphash', lambda f: sphash(f.tensor.coords), ('n_in',), None),
-            ('kernel_sphash_k27', _kernel_sphash, ('n_in',), None),
-            ('sphashquery_self', _sphashquery_self, ('n_in',), None),
-            ('spcount_mod4096', _spcount, ('n_in',), None),
+            ("sphash", lambda f: sphash(f.tensor.coords), ("n_in",), None),
+            ("kernel_sphash_k27", _kernel_sphash, ("n_in",), None),
+            ("sphashquery_self", _sphashquery_self, ("n_in",), None),
+            ("spcount_mod4096", _spcount, ("n_in",), None),
         ),
         n_values=n_values,
         channels=channels,
@@ -51,5 +51,8 @@ def _sphashquery_self(fixture: SparseFixture) -> torch.Tensor:
 
 def _spcount(fixture: SparseFixture) -> torch.Tensor:
     rows = fixture.tensor.feats.shape[0]
-    indices = torch.arange(rows, device=fixture.tensor.coords.device, dtype=torch.int32) % 4096
+    indices = (
+        torch.arange(rows, device=fixture.tensor.coords.device, dtype=torch.int32)
+        % 4096
+    )
     return F.spcount(indices, 4096)

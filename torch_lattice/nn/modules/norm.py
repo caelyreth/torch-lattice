@@ -17,7 +17,26 @@ __all__ = [
 
 class InstanceNorm(nn.InstanceNorm1d):
     def forward(self, input: SparseTensor) -> SparseTensor:
-        return fapply(input, super().forward)
+        if input.coords.shape[0] == 0:
+            return input.replace(feats=input.feats)
+        output = torch.empty_like(input.feats)
+        batch_size = _batch_size(input)
+        for batch_index in range(batch_size):
+            rows = input.coords[:, 0] == batch_index
+            feats = input.feats[rows]
+            if feats.shape[0] == 0:
+                continue
+            variance, mean = torch.var_mean(
+                feats.float(), dim=0, unbiased=False, keepdim=True
+            )
+            normalized = (feats.float() - mean) * torch.rsqrt(variance + self.eps)
+            normalized = normalized.to(input.feats.dtype)
+            if self.weight is not None:
+                normalized = normalized * self.weight.reshape(1, -1)
+            if self.bias is not None:
+                normalized = normalized + self.bias.reshape(1, -1)
+            output[rows] = normalized
+        return input.replace(feats=output)
 
 
 class BatchNorm(nn.BatchNorm1d):
@@ -67,17 +86,10 @@ class RMSNorm(nn.Module):
 
 class GroupNorm(nn.GroupNorm):
     def forward(self, input: SparseTensor) -> SparseTensor:
-        coords, feats, stride = input.coords, input.feats, input.stride
+        coords, feats = input.coords, input.feats
 
         if coords.numel() == 0:
-            output = SparseTensor(
-                coords=coords,
-                feats=feats,
-                stride=stride,
-                spatial_range=input.spatial_range,
-            )
-            output._caches = input._caches
-            return output
+            return input.replace(feats=feats)
 
         num_channels = feats.shape[1]
         single_batch = (
@@ -97,30 +109,28 @@ class GroupNorm(nn.GroupNorm):
                 nfeats = nfeats * self.weight.reshape(1, num_channels)
             if self.bias is not None:
                 nfeats = nfeats + self.bias.reshape(1, num_channels)
-            output = SparseTensor(
-                coords=coords,
-                feats=nfeats,
-                stride=stride,
-                spatial_range=input.spatial_range,
-            )
-            output._caches = input._caches
-            return output
+            return input.replace(feats=nfeats)
 
-        batch_size = torch.max(coords[:, 0]).item() + 1
+        batch_size = _batch_size(input)
         nfeats = torch.zeros_like(feats)
         for k in range(batch_size):
             indices = coords[:, 0] == k
             bfeats = feats[indices]
+            if bfeats.shape[0] == 0:
+                continue
             bfeats = bfeats.transpose(0, 1).reshape(1, num_channels, -1)
             bfeats = super().forward(bfeats)
             bfeats = bfeats.reshape(num_channels, -1).transpose(0, 1)
             nfeats[indices] = bfeats
 
-        output = SparseTensor(
-            coords=coords,
-            feats=nfeats,
-            stride=stride,
-            spatial_range=input.spatial_range,
-        )
-        output._caches = input._caches
-        return output
+        return input.replace(feats=nfeats)
+
+
+def _batch_size(input: SparseTensor) -> int:
+    if input.batch_counts is not None:
+        return len(input.batch_counts)
+    if input.spatial_range is not None:
+        return int(input.spatial_range[0])
+    if input.coords.shape[0] == 0:
+        return 0
+    return int(input.coords[:, 0].max().item()) + 1

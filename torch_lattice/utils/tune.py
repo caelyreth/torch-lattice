@@ -100,10 +100,7 @@ def _config_key(config):
 
 
 def clear_tensor_cache(inputs: SparseTensor):
-    inputs = recursive_apply(inputs, lambda x: x._caches.cmaps.clear())
-    inputs = recursive_apply(inputs, lambda x: x._caches.kmaps.clear())
-    inputs = recursive_apply(inputs, lambda x: x._caches.hashmaps.clear())
-    return inputs
+    return recursive_apply(inputs, lambda x: x.coord_manager.clear_relations())
 
 
 def clear_model_config(model: nn.Module):
@@ -488,7 +485,7 @@ def tune(
                 model = model.half()
             inputs = recursive_apply(inputs, lambda x: x.cuda())
             model = model.cuda()
-            with torch.cuda.amp.autocast(enabled=enable_fp16):
+            with torch.amp.autocast("cuda", enabled=enable_fp16):
                 # generate dumps
                 name_to_group = {}
                 group_to_name = defaultdict(list)
@@ -522,7 +519,7 @@ def tune(
                         model = model.half()
                     inputs = recursive_apply(inputs, lambda x: x.cuda())
                     model = model.cuda()
-                    with torch.cuda.amp.autocast(enabled=enable_fp16):
+                    with torch.amp.autocast("cuda", enabled=enable_fp16):
                         if i == 0:
                             # device warm-up
                             for warm_iter in range(10):
@@ -576,7 +573,7 @@ def tune(
                 model = model.half()
             inputs = recursive_apply(inputs, lambda x: x.cuda())
             model = model.cuda()
-            with torch.cuda.amp.autocast(enabled=enable_fp16):
+            with torch.amp.autocast("cuda", enabled=enable_fp16):
                 if i == 0:
                     # device warm-up
                     for warm_iter in range(10):

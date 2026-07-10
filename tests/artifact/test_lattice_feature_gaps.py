@@ -50,7 +50,9 @@ def test_sparse_pool3d_runtime_sum_avg_max():
         padding=(1, 0, 0),
     )
     torch.testing.assert_close(summed.feats, torch.tensor([[3.0], [7.0], [6.0]]))
-    torch.testing.assert_close(averaged.feats, torch.tensor([[1.5], [7.0 / 3.0], [3.0]]))
+    torch.testing.assert_close(
+        averaged.feats, torch.tensor([[1.5], [7.0 / 3.0], [3.0]])
+    )
     torch.testing.assert_close(maxed.feats, torch.tensor([[2.0], [4.0], [4.0]]))
 
 
@@ -61,12 +63,14 @@ def test_target_conv3d_runtime_uses_target_support():
         coords=torch.tensor([[0, 0, 0, 0], [0, 2, 0, 0]], dtype=torch.int32),
         spatial_range=(1, 3, 1, 1),
     )
-    conv = spnn.TargetConv3d(2, 1, kernel_size=1, bias=True)
+    conv = spnn.Conv3d(2, 1, kernel_size=1, bias=True)
     with torch.no_grad():
         conv.kernel.copy_(torch.tensor([[2.0], [3.0]]))
         conv.bias.copy_(torch.tensor([0.5]))
-    out = conv(x, target)
+    out = conv(x, coordinates=target)
     assert torch.equal(out.coords, target.coords)
+    assert out.coord_manager is target.coord_manager
+    assert out.coord_key == target.coord_key
     torch.testing.assert_close(out.feats, torch.tensor([[8.5], [47.5]]))
 
 
@@ -89,21 +93,23 @@ def test_high_level_voxelize_and_devoxelize_runtime():
         point_active_rows=torch.tensor([3], dtype=torch.int32),
         interpolation="nearest",
     )
-    torch.testing.assert_close(sampled, torch.tensor([[2.0, 3.0], [2.0, 3.0], [9.0, 10.0]]))
+    torch.testing.assert_close(
+        sampled, torch.tensor([[2.0, 3.0], [2.0, 3.0], [9.0, 10.0]])
+    )
 
 
 def test_artifact_pool_and_target_conv_mlir(tmp_path):
     class Model(nn.Module):
         def __init__(self):
             super().__init__()
-            self.target = spnn.TargetConv3d(2, 3, kernel_size=1)
+            self.target = spnn.Conv3d(2, 3, kernel_size=1)
             self.pool = spnn.AvgPool3d(kernel_size=1, stride=1)
 
         def forward(self, x, target):
-            return self.pool(self.target(x, target))
+            return self.pool(self.target(x, coordinates=target))
 
     builder = TorchLatticeArtifactBuilder(input_dtype="f32")
-    target = builder.sparse_input()
+    target = builder.sparse_argument("target")
     lower_fx_artifact(builder, Model().eval(), inputs=(builder.current, target))
     graph = builder.to_mlir()
     assert "lattice.target_conv3d" in graph
@@ -143,6 +149,7 @@ def test_quantized_artifact_stores_packed_weights(tmp_path):
     report = save_lattice_model_artifact(
         model,
         tmp_path,
+        example_inputs=(_sparse(torch.ones(3, 2)),),
         options=LatticeModelArtifactOptions(quantize_bits=8, quantize_group_size=32),
     )
     graph = report.graph_path.read_text()
@@ -154,7 +161,15 @@ def test_quantized_artifact_stores_packed_weights(tmp_path):
 
 
 def test_sparse_activation_modules_and_norm_runtime():
-    x = _sparse(torch.tensor([[0.3, -0.4, 0.5, -0.6], [0.7, 0.2, -0.1, 0.9]]))
+    x = _sparse(
+        torch.tensor(
+            [
+                [0.3, -0.4, 0.5, -0.6],
+                [0.7, 0.2, -0.1, 0.9],
+                [-0.2, 0.8, 0.4, 0.1],
+            ]
+        )
+    )
     for module in (
         spnn.GELU(),
         spnn.Sigmoid(),
@@ -217,7 +232,11 @@ def test_artifact_sparse_crop_reports_missing_dialect_op(tmp_path):
         spnn.SparseCrop(coords_min=(0, 0, 0), coords_max=(2, 2, 2)),
     ).eval()
     with pytest.raises(ValueError, match="sparse crop op"):
-        save_lattice_model_artifact(model, tmp_path)
+        save_lattice_model_artifact(
+            model,
+            tmp_path,
+            example_inputs=(_sparse(torch.ones(3, 2)),),
+        )
 
 
 def test_artifact_dense_head_dropout_flatten_identity_mlir():
@@ -242,5 +261,6 @@ def test_artifact_training_dropout_rejected(tmp_path):
         save_lattice_model_artifact(
             model,
             tmp_path,
+            example_inputs=(_sparse(torch.ones(3, 2)),),
             options=LatticeModelArtifactOptions(batch_size=1),
         )

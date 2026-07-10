@@ -12,6 +12,7 @@ __all__ = [
     "AvgPool3d",
     "GlobalAvgPool",
     "GlobalMaxPool",
+    "GlobalSumPool",
     "MaxPool3d",
     "Pool3d",
     "SumPool3d",
@@ -82,10 +83,21 @@ class AvgPool3d(Pool3d):
 
 
 class GlobalAvgPool(nn.Module):
-    def forward(self, input: SparseTensor) -> torch.Tensor:
-        return F.global_avg_pool(input)
+    def forward(
+        self, input: SparseTensor, *, batch_size: int | None = None
+    ) -> torch.Tensor:
+        return F.global_avg_pool(input, batch_size=batch_size)
 
 
 class GlobalMaxPool(nn.Module):
-    def forward(self, input: SparseTensor) -> torch.Tensor:
-        return F.global_max_pool(input)
+    def forward(
+        self, input: SparseTensor, *, batch_size: int | None = None
+    ) -> torch.Tensor:
+        return F.global_max_pool(input, batch_size=batch_size)
+
+
+class GlobalSumPool(nn.Module):
+    def forward(
+        self, input: SparseTensor, *, batch_size: int | None = None
+    ) -> torch.Tensor:
+        return F.global_sum_pool(input, batch_size=batch_size)

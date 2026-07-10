@@ -9,7 +9,12 @@ import torch
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
 
-from torch_lattice_bench.cases.common import F, conv_module, fresh_sparse, set_conv_config
+from torch_lattice_bench.cases.common import (
+    F,
+    conv_module,
+    fresh_sparse,
+    set_conv_config,
+)
 from torch_lattice_bench.datasets import SparseFixture, params_matrix, sparse_fixture
 from torch_lattice_bench.harness import BenchmarkCase, SkipCase
 
@@ -51,7 +56,7 @@ def cases(
     return tuple(
         BenchmarkCase(
             name=name,
-            group='conv',
+            group="conv",
             params=params,
             setup=_setup_factory(
                 device,
@@ -65,7 +70,7 @@ def cases(
             prepare=_prepare,
             run=_run_conv,
             metrics=_conv_metrics,
-            units=('elements',),
+            units=("elements",),
         )
         for name, dataflow, kwargs, kernel_size, stride, min_extent, subm in _specs()
     )
@@ -75,65 +80,65 @@ def _specs() -> tuple[
     tuple[str, F.Dataflow | None, dict[str, Any], int, int, int, bool], ...
 ]:
     return (
-        ('conv1x1_matmul', None, {}, 1, 1, 1, False),
+        ("conv1x1_matmul", None, {}, 1, 1, 1, False),
         (
-            'conv3_implicit_gemm_unsorted',
+            "conv3_implicit_gemm_unsorted",
             F.Dataflow.ImplicitGEMM,
-            {'ifsort': False, 'split_mask_num': 1},
+            {"ifsort": False, "split_mask_num": 1},
             3,
             1,
             1,
             False,
         ),
         (
-            'conv3_implicit_gemm_sorted',
+            "conv3_implicit_gemm_sorted",
             F.Dataflow.ImplicitGEMM,
-            {'ifsort': True, 'split_mask_num': 3},
+            {"ifsort": True, "split_mask_num": 3},
             3,
             1,
             1,
             False,
         ),
         (
-            'conv3_fetch_on_demand_fused',
+            "conv3_fetch_on_demand_fused",
             F.Dataflow.FetchOnDemand,
-            {'FOD_fusion': True},
+            {"FOD_fusion": True},
             3,
             1,
             1,
             False,
         ),
         (
-            'conv3_fetch_on_demand_no_fusion',
+            "conv3_fetch_on_demand_no_fusion",
             F.Dataflow.FetchOnDemand,
-            {'FOD_fusion': False},
+            {"FOD_fusion": False},
             3,
             1,
             1,
             False,
         ),
         (
-            'conv3_gather_scatter',
+            "conv3_gather_scatter",
             F.Dataflow.GatherScatter,
-            {'ifsort': False, 'split_mask_num': 1},
+            {"ifsort": False, "split_mask_num": 1},
             3,
             1,
             1,
             False,
         ),
         (
-            'conv2_stride2_implicit',
+            "conv2_stride2_implicit",
             F.Dataflow.ImplicitGEMM,
-            {'ifsort': True, 'split_mask_num': 2},
+            {"ifsort": True, "split_mask_num": 2},
             2,
             2,
             2,
             False,
         ),
         (
-            'subm3_implicit_gemm_unsorted',
+            "subm3_implicit_gemm_unsorted",
             F.Dataflow.ImplicitGEMM,
-            {'ifsort': False, 'split_mask_num': 1},
+            {"ifsort": False, "split_mask_num": 1},
             3,
             1,
             1,
@@ -189,8 +194,8 @@ def _prepare(fixture: ConvFixture) -> ConvPrepared:
 def _run_conv(prepared: ConvPrepared) -> SparseTensor:
     if min(prepared.x.spatial_range[1:]) < prepared.min_spatial_extent:
         raise SkipCase(
-            f'spatial range {prepared.x.spatial_range[1:]} is too thin for '
-            f'kernel extent {prepared.min_spatial_extent}'
+            f"spatial range {prepared.x.spatial_range[1:]} is too thin for "
+            f"kernel extent {prepared.min_spatial_extent}"
         )
     if prepared.dataflow is not None:
         set_conv_config(prepared.dataflow, **prepared.kwargs)
@@ -201,5 +206,5 @@ def _run_conv(prepared: ConvPrepared) -> SparseTensor:
 def _conv_metrics(params, fixture, prepared, output) -> dict[str, int | float]:
     del params, fixture, prepared
     if isinstance(output, SparseTensor):
-        return {'elements': int(output.feats.numel())}
+        return {"elements": int(output.feats.numel())}
     return {}

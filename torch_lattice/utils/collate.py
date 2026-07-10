@@ -9,27 +9,29 @@ __all__ = ["sparse_collate", "sparse_collate_fn"]
 
 
 def sparse_collate(inputs: List[SparseTensor]) -> SparseTensor:
+    if not inputs:
+        raise ValueError("sparse_collate requires at least one tensor")
     coords, feats = [], []
     stride = inputs[0].stride
 
     for k, x in enumerate(inputs):
-        if isinstance(x.coords, np.ndarray):
-            x.coords = torch.tensor(x.coords)
-        if isinstance(x.feats, np.ndarray):
-            x.feats = torch.tensor(x.feats)
-
-        assert isinstance(x.coords, torch.Tensor), type(x.coords)
-        assert isinstance(x.feats, torch.Tensor), type(x.feats)
-        assert x.stride == stride, (x.stride, stride)
+        if x.stride != stride:
+            raise ValueError("all sparse tensors must have the same stride")
 
         input_size = x.coords.shape[0]
         batch = torch.full((input_size, 1), k, device=x.coords.device, dtype=torch.int)
-        coords.append(torch.cat((batch, x.coords), dim=1))
+        spatial = x.coords[:, 1:] if x.coords.shape[1] == 4 else x.coords
+        coords.append(torch.cat((batch, spatial), dim=1))
         feats.append(x.feats)
 
     coords = torch.cat(coords, dim=0)
     feats = torch.cat(feats, dim=0)
-    output = SparseTensor(coords=coords, feats=feats, stride=stride)
+    output = SparseTensor(
+        coords=coords,
+        feats=feats,
+        stride=stride,
+        batch_counts=tuple(int(x.coords.shape[0]) for x in inputs),
+    )
     return output
 
 

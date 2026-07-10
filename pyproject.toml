@@ -67,11 +67,6 @@ torch-lattice-conformance = { workspace = true }
 wheel.packages = ["torch_lattice"]
 build-dir = "build/{wheel_tag}"
 
-[tool.scikit-build.cmake.define]
-CMAKE_CUDA_ARCHITECTURES = "89"
-CMAKE_CUDA_COMPILER = "/usr/local/cuda-12.8/bin/nvcc"
-CUDAToolkit_ROOT = "/usr/local/cuda-12.8"
-
 [tool.yapf]
 based_on_style = "google"
 spaces_around_power_operator = true

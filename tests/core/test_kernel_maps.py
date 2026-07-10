@@ -40,7 +40,9 @@ def test_spdownsample_simple_fast_path_matches_python_fallback(monkeypatch):
         spatial_range=spatial_range,
     )
 
-    torch.testing.assert_close(torch.sort(sphash(fast)).values, torch.sort(sphash(fallback)).values)
+    torch.testing.assert_close(
+        torch.sort(sphash(fast)).values, torch.sort(sphash(fallback)).values
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
@@ -57,12 +59,7 @@ def test_spdownsample_simple_fast_path_skips_negative_coordinate_mode(monkeypatc
         raise AssertionError("fast path should be skipped")
 
     monkeypatch.setattr(torch_lattice.backend, "downsample_simple_cuda", fake_fast)
-    old = torch_lattice.tensor.get_allow_negative_coordinates()
-    torch_lattice.tensor.set_allow_negative_coordinates(True)
-    try:
-        out = spdownsample(coords, stride=2, kernel_size=2)
-    finally:
-        torch_lattice.tensor.set_allow_negative_coordinates(old)
+    out = spdownsample(coords, stride=2, kernel_size=2)
 
     assert calls["fast"] == 0
     assert out.numel() > 0
@@ -91,7 +88,9 @@ def test_spupsample_generative_fast_path_matches_fallback_set():
         spatial_range=spatial_range,
     )
 
-    torch.testing.assert_close(torch.sort(sphash(fast)).values, torch.sort(sphash(fallback)).values)
+    torch.testing.assert_close(
+        torch.sort(sphash(fast)).values, torch.sort(sphash(fallback)).values
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
@@ -120,5 +119,3 @@ def test_spupsample_generative_fast_path_matches_python_fallback(monkeypatch):
     fast_order = torch.argsort(sphash(fast))
     fallback_order = torch.argsort(sphash(fallback))
     torch.testing.assert_close(fast[fast_order], fallback[fallback_order])
-
-

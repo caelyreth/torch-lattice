@@ -17,7 +17,7 @@ def check_to_dense_forward(
     shape: Union[int, Tuple[int, ...]] = 3,
     num_points: int = 6,
     channel: int = 4,
-    device: str = 'cuda:0',
+    device: str = "cuda:0",
 ) -> float:
     np.random.seed(0)
     torch.manual_seed(0)
@@ -34,9 +34,9 @@ def check_to_dense_forward(
 
     sparse_dict = generate_feature_map(shape, num_points, channel, dtype=np_dtype)
 
-    feats = np.ascontiguousarray(sparse_dict['feats'])
-    coords = np.ascontiguousarray(sparse_dict['coords'])
-    ref_dense_feats = sparse_dict['dense_feats'].transpose(0, 2, 3, 4, 1)
+    feats = np.ascontiguousarray(sparse_dict["feats"])
+    coords = np.ascontiguousarray(sparse_dict["coords"])
+    ref_dense_feats = sparse_dict["dense_feats"].transpose(0, 2, 3, 4, 1)
 
     coords_t = torch.from_numpy(coords).int().to(device)
     feats_t = torch.from_numpy(feats).to(torch_dtype).to(device)

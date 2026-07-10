@@ -9,7 +9,6 @@ from torch import fx, nn
 from torch.utils import _pytree
 
 import torch_lattice
-from torch_lattice import nn as spnn
 from torch_lattice import operators as lattice_ops
 from torch_lattice.nn import functional as F
 
@@ -81,6 +80,8 @@ def fx_function_lowering(
 
     def decorator(fn: FxLoweringFn) -> FxLoweringFn:
         for target in targets:
+            if target in _FX_FUNCTION_LOWERINGS:
+                raise ValueError(f"duplicate FX artifact lowering: {target}")
             _FX_FUNCTION_LOWERINGS[target] = fn
         return fn
 
@@ -110,7 +111,9 @@ class LatticeTracer(fx.Tracer):
 class LatticeArtifactInterpreter(fx.Interpreter):
     """Lower an FX graph by interpreting it with symbolic lattice values."""
 
-    def __init__(self, module: fx.GraphModule, builder: TorchLatticeArtifactBuilder) -> None:
+    def __init__(
+        self, module: fx.GraphModule, builder: TorchLatticeArtifactBuilder
+    ) -> None:
         super().__init__(module)
         self.builder = builder
 
@@ -155,11 +158,14 @@ class LatticeArtifactInterpreter(fx.Interpreter):
         del target
         values = _artifact_values(args, kwargs)
         if len(values) < 2:
-            raise ValueError("lattice cat artifact requires at least two sparse values.")
+            raise ValueError(
+                "lattice cat artifact requires at least two sparse values."
+            )
         out = values[0]
         stem = _current_node_name(self, "cat")
+        join = str(kwargs.get("join", "inner"))
         for index, value in enumerate(values[1:], start=1):
-            out = self.builder.sparse_cat(f"{stem}_{index}", out, value)
+            out = self.builder.sparse_cat(f"{stem}_{index}", out, value, join=join)
         return out
 
     @fx_function_lowering(*_BINARY_FUNCTIONS)
@@ -172,7 +178,9 @@ class LatticeArtifactInterpreter(fx.Interpreter):
         values = _artifact_values(args, kwargs)
         op = _BINARY_FUNCTIONS[target]
         if len(values) != 2:
-            raise ValueError(f"lattice {op} artifact requires exactly two sparse values.")
+            raise ValueError(
+                f"lattice {op} artifact requires exactly two sparse values."
+            )
         return self.builder.sparse_binary(
             _current_node_name(self, op),
             values[0],
@@ -195,8 +203,12 @@ class LatticeArtifactInterpreter(fx.Interpreter):
             _current_node_name(self, "voxelize"),
             points=_artifact_arg(args, kwargs, 0, "points", context="voxelize"),
             features=_artifact_arg(args, kwargs, 1, "features", context="voxelize"),
-            batch_indices=_artifact_arg(args, kwargs, 2, "batch_indices", context="voxelize"),
-            active_rows=_artifact_arg(args, kwargs, 3, "active_rows", context="voxelize"),
+            batch_indices=_artifact_arg(
+                args, kwargs, 2, "batch_indices", context="voxelize"
+            ),
+            active_rows=_artifact_arg(
+                args, kwargs, 3, "active_rows", context="voxelize"
+            ),
             voxel_size=kwargs.get("voxel_size", 1.0),
             origin=kwargs.get("origin", 0.0),
             reduction=kwargs.get("reduction", "mean"),
@@ -215,8 +227,12 @@ class LatticeArtifactInterpreter(fx.Interpreter):
             _current_node_name(self, "devoxelize"),
             points=_artifact_arg(args, kwargs, 0, "points", context="devoxelize"),
             voxels=_artifact_arg(args, kwargs, 1, "voxels", context="devoxelize"),
-            batch_indices=_artifact_arg(args, kwargs, 2, "batch_indices", context="devoxelize"),
-            point_active_rows=_artifact_arg(args, kwargs, 3, "point_active_rows", context="devoxelize"),
+            batch_indices=_artifact_arg(
+                args, kwargs, 2, "batch_indices", context="devoxelize"
+            ),
+            point_active_rows=_artifact_arg(
+                args, kwargs, 3, "point_active_rows", context="devoxelize"
+            ),
             voxel_size=kwargs.get("voxel_size", 1.0),
             origin=kwargs.get("origin", 0.0),
             interpolation=kwargs.get("interpolation", "nearest"),
@@ -227,17 +243,19 @@ def lower_fx_artifact(
     builder: TorchLatticeArtifactBuilder,
     model: nn.Module,
     inputs: Iterable[ArtifactValue] | None = None,
+    *,
+    output_names: tuple[str, ...] | None = None,
 ) -> TorchLatticeArtifactBuilder:
+    run_inputs = tuple(inputs) if inputs is not None else (builder.current,)
     if isinstance(model, SUPPORTED_MODULE_TYPES):
-        builder.module(type(model).__name__.lower(), model)
-        builder.output()
+        result = builder.lower_module(type(model).__name__.lower(), model, *run_inputs)
+        builder.output(result, names=output_names)
         return builder
 
     graph = LatticeTracer().trace(model)
     graph_module = fx.GraphModule(model, graph)
-    run_inputs = tuple(inputs) if inputs is not None else (builder.current,)
     result = LatticeArtifactInterpreter(graph_module, builder).run(*run_inputs)
-    builder.output(_single_output_value(result))
+    builder.output(*_output_values(result), names=output_names)
     return builder
 
 
@@ -261,11 +279,17 @@ def _default_join(op: str) -> str:
     return "outer"
 
 
-def _single_output_value(value: Any) -> ArtifactValue:
-    values = _artifact_values(value)
-    if len(values) != 1:
-        raise ValueError("lattice artifact currently supports one model output.")
-    return values[0]
+def _output_values(value: Any) -> tuple[ArtifactValue, ...]:
+    leaves, _ = _pytree.tree_flatten(value)
+    if not leaves:
+        raise ValueError("lattice artifact model produced no tensor outputs")
+    invalid = [leaf for leaf in leaves if not isinstance(leaf, ArtifactValue)]
+    if invalid:
+        names = ", ".join(sorted({type(value).__name__ for value in invalid}))
+        raise ValueError(
+            "lattice artifact outputs must all be tensors; unsupported: " + names
+        )
+    return tuple(leaves)
 
 
 def _artifact_values(*values: Any) -> list[ArtifactValue]:

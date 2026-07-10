@@ -20,8 +20,9 @@ A normal export writes:
      - Stable sparse graph structure and operation attributes.
    * - ``weights.safetensors``
      - Named tensor values referenced by the graph.
-   * - metadata
-     - Input/output names, artifact version, and loader-facing bookkeeping.
+   * - ``graph.mlir`` module attributes
+     - Input/output names, dialect version, schema digest, and weight-file
+       identity. These are embedded in the graph rather than a sidecar file.
 
 The MLIR graph owns operation semantics. The safetensors file owns numeric state.
 This separation lets CUDA training and MLX inference share a contract without
@@ -39,6 +40,13 @@ reader can answer:
 * which operation creates or preserves support;
 * which named weight tensor is used by each parameterized operation;
 * which graph values are public outputs.
+
+Export requires ``model.eval()`` and a non-empty ``example_inputs`` tuple. The
+model's ``forward`` signature supplies stable ABI names, while each example value
+supplies dtype, rank, sparse stride, and channel metadata. Multiple positional
+inputs and nested tuple/list outputs are flattened into named MLIR arguments and
+returns. Use ``output_names=...`` when the default ``output_0``, ``output_1``
+names are not descriptive enough.
 
 Numerical contract
 ------------------

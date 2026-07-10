@@ -1,104 +1,112 @@
-from typing import Any, Dict, Tuple, Union
+from __future__ import annotations
+
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from enum import Enum
-from .utils import AttributeDict
-from .conv_mode import ConvMode, get_kmap_mode, get_downsample_mode
+from typing import Any, Iterator, Mapping
+
+from .conv_mode import ConvMode
 
 
 class Dataflow(Enum):
     ImplicitGEMM = 0
     GatherScatter = 1
     FetchOnDemand = 2
-    CodedCSR = 3
 
 
-_global_conv_config = None
-_default_conv_config = AttributeDict(
-    [
-        ("dataflow", Dataflow.ImplicitGEMM),
-        ("ifsort", False),
-        ("kmap_mode", "hashmap_on_the_fly"),
-        ("downsample_mode", "spconv"),
-        ("split_mask_num", 1),
-        ("split_mask_num_bwd", 3),
-        ("wgrad_split_k", "auto"),
-        ("IGEMM_center_only", False),
-        ("epsilon", 0.0),
-        ("mm_thresh", 0),
-        ("FOD_fusion", False),
-    ]
+@dataclass(slots=True)
+class ConvConfig(Mapping[str, Any]):
+    """Validated sparse-convolution execution policy."""
+
+    dataflow: Dataflow = Dataflow.ImplicitGEMM
+    ifsort: bool = False
+    kmap_mode: str = "hashmap_on_the_fly"
+    downsample_mode: str = "spconv"
+    split_mask_num: int = 1
+    split_mask_num_bwd: int = 3
+    wgrad_split_k: int | str = "auto"
+    IGEMM_center_only: bool = False
+    epsilon: float = 0.0
+    mm_thresh: int = 0
+    FOD_fusion: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.dataflow, Dataflow):
+            raise TypeError("dataflow must be a Dataflow value")
+        if self.kmap_mode not in {"hashmap", "hashmap_on_the_fly"}:
+            raise ValueError("kmap_mode must be 'hashmap' or 'hashmap_on_the_fly'")
+        if self.downsample_mode not in {"spconv", "minkowski"}:
+            raise ValueError("downsample_mode must be 'spconv' or 'minkowski'")
+        if self.split_mask_num < 1 or self.split_mask_num_bwd < 1:
+            raise ValueError("split mask counts must be positive")
+        if self.wgrad_split_k != "auto" and int(self.wgrad_split_k) < 1:
+            raise ValueError("wgrad_split_k must be 'auto' or a positive integer")
+
+    def copy(self) -> ConvConfig:
+        return replace(self)
+
+    def __getitem__(self, key: str) -> Any:
+        if key not in self.__dataclass_fields__:
+            raise KeyError(key)
+        return getattr(self, key)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.__dataclass_fields__)
+
+    def __len__(self) -> int:
+        return len(self.__dataclass_fields__)
+
+
+_global_conv_config: ContextVar[ConvConfig | None] = ContextVar(
+    "torch_lattice_conv_config", default=None
 )
 
 
-def keys_check(conv_config):
-    flag = False
-    if "dataflow" not in conv_config:
-        flag = True
-        conv_config["dataflow"] = _default_conv_config["dataflow"]
-    if "ifsort" not in conv_config:
-        flag = True
-        conv_config["ifsort"] = _default_conv_config["ifsort"]
-    if "kmap_mode" not in conv_config:
-        flag = True
-        conv_config["kmap_mode"] = _default_conv_config["kmap_mode"]
-    if "downsample_mode" not in conv_config:
-        flag = True
-        conv_config["downsample_mode"] = _default_conv_config["downsample_mode"]
-    if "split_mask_num" not in conv_config:
-        flag = True
-        conv_config["split_mask_num"] = _default_conv_config["split_mask_num"]
-    if "split_mask_num_bwd" not in conv_config:
-        flag = True
-        conv_config["split_mask_num_bwd"] = _default_conv_config["split_mask_num_bwd"]
-    if "wgrad_split_k" not in conv_config:
-        flag = True
-        conv_config["wgrad_split_k"] = _default_conv_config["wgrad_split_k"]
-    if "IGEMM_center_only" not in conv_config:
-        flag = True
-        conv_config["IGEMM_center_only"] = _default_conv_config[
-            "IGEMM_center_only"
-        ]
-    if "epsilon" not in conv_config:
-        flag = True
-        conv_config["epsilon"] = _default_conv_config["epsilon"]
-    if "mm_thresh" not in conv_config:
-        flag = True
-        conv_config["mm_thresh"] = _default_conv_config["mm_thresh"]
-    if "FOD_fusion" not in conv_config:
-        flag = True
-        conv_config["FOD_fusion"] = _default_conv_config["FOD_fusion"]
-    if flag == True:
-        print(
-            "Warning: Missing fields for ConvConfig. Use default configs for these fields."
-        )
+def get_global_conv_config() -> ConvConfig | None:
+    config = _global_conv_config.get()
+    return None if config is None else config.copy()
 
 
-def get_global_conv_config():
-    global _global_conv_config
-    return _global_conv_config
+def set_global_conv_config(conv_config: ConvConfig | Mapping[str, Any]) -> None:
+    _global_conv_config.set(_coerce_config(conv_config))
 
 
-def set_global_conv_config(conv_config):
-    global _global_conv_config
-    keys_check(conv_config)
-    _global_conv_config = conv_config
-
-
-def clear_global_conv_config():
-    global _global_conv_config
-    _global_conv_config = None
+def clear_global_conv_config() -> None:
+    _global_conv_config.set(None)
 
 
 def get_default_conv_config(
-    conv_mode: ConvMode = ConvMode.mode0, training: bool = False
-):
-    config = _default_conv_config.copy()
-    # if training:
-    #     config.ifsort = True
-    if conv_mode == ConvMode.mode0:
-        pass
-    elif conv_mode == ConvMode.mode1:
+    conv_mode: ConvMode = ConvMode.mode0,
+    training: bool = False,
+) -> ConvConfig:
+    del training
+    config = ConvConfig()
+    if conv_mode == ConvMode.mode1:
         config.ifsort = True
     elif conv_mode == ConvMode.mode2:
         config.ifsort = True
         config.split_mask_num = 3
+    elif conv_mode != ConvMode.mode0:
+        raise ValueError(f"unsupported convolution mode: {conv_mode}")
     return config
+
+
+def _coerce_config(value: ConvConfig | Mapping[str, Any]) -> ConvConfig:
+    if isinstance(value, ConvConfig):
+        return value.copy()
+    known = set(ConvConfig.__dataclass_fields__)
+    unknown = set(value) - known
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise ValueError(f"unknown convolution configuration fields: {names}")
+    return ConvConfig(**dict(value))
+
+
+__all__ = [
+    "ConvConfig",
+    "Dataflow",
+    "clear_global_conv_config",
+    "get_default_conv_config",
+    "get_global_conv_config",
+    "set_global_conv_config",
+]

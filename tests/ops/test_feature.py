@@ -28,9 +28,20 @@ def test_activation_feature_ops_keep_coordinate_contract() -> None:
     x = line_sparse_case(channels=2, rows=2).tensor()
     x.feats = torch.tensor([[-1.0, 2.0], [3.0, -4.0]])
 
-    torch.testing.assert_close(F.relu(x, inplace=False).feats, torch.tensor([[0.0, 2.0], [3.0, 0.0]]))
-    torch.testing.assert_close(F.leaky_relu(x, negative_slope=0.1, inplace=False).feats, torch.tensor([[-0.1, 2.0], [3.0, -0.4]]))
-    for module in (spnn.SiLU(), spnn.GELU(), spnn.Sigmoid(), spnn.Tanh(), spnn.Softplus()):
+    torch.testing.assert_close(
+        F.relu(x, inplace=False).feats, torch.tensor([[0.0, 2.0], [3.0, 0.0]])
+    )
+    torch.testing.assert_close(
+        F.leaky_relu(x, negative_slope=0.1, inplace=False).feats,
+        torch.tensor([[-0.1, 2.0], [3.0, -0.4]]),
+    )
+    for module in (
+        spnn.SiLU(),
+        spnn.GELU(),
+        spnn.Sigmoid(),
+        spnn.Tanh(),
+        spnn.Softplus(),
+    ):
         out = module(x)
         assert out.feats.shape == x.feats.shape
         assert_same_sparse_coords(out, x)

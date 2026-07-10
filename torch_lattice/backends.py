@@ -11,4 +11,6 @@ def init():
         device_capability = 0
     allow_tf32 = device_capability >= 800
     allow_fp16 = device_capability >= 750
-    hash_rsv_ratio = 2  # default value, reserve 2x original point count for downsampling
+    hash_rsv_ratio = (
+        2  # default value, reserve 2x original point count for downsampling
+    )

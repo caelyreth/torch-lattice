@@ -3,12 +3,8 @@ from typing import Dict
 import torch
 from torch.autograd import Function
 
-# from torch.cuda.amp import custom_bwd, custom_fwd
-
 import torch_lattice
 import torch_lattice.backend
-
-buffer = torch.Tensor()
 
 __all__ = ["GatherScatterConvolutionFuntion", "gather_scatter_forward_no_grad"]
 
@@ -17,7 +13,9 @@ def _select_active_weight(weight: torch.Tensor, kmap: Dict) -> torch.Tensor:
     active_kernel_offsets = kmap.get("active_kernel_offsets")
     if active_kernel_offsets is None:
         return weight
-    active_kernel_offsets = active_kernel_offsets.to(device=weight.device, dtype=torch.long)
+    active_kernel_offsets = active_kernel_offsets.to(
+        device=weight.device, dtype=torch.long
+    )
     weight_cache_key = (
         int(weight.data_ptr()),
         int(getattr(weight, "_version", 0)),
@@ -53,16 +51,13 @@ def _gather_scatter_forward_impl(
     mm_thresh = config["mm_thresh"]
 
     conv_mode = 0
-    global buffer
+    buffer = input.new_empty((0,))
     if torch_lattice.backends.benchmark:  # type: ignore
         conv_mode = 1 if (epsilon == 0.0 and mm_thresh == 0) else 2
-        if buffer.shape[0] == 0 or buffer.dtype != input.dtype:
-            buffer = torch.zeros(
-                4000000 * 64,
-                dtype=input.dtype,
-                device=input.device,
-                requires_grad=False,
-            )
+        required = int(nbsizes_cpu.sum().item()) * (
+            int(input.shape[1]) + int(weight.shape[-1])
+        )
+        buffer = input.new_empty((required,))
 
     input = input.contiguous()
     weight = weight.contiguous()
@@ -193,7 +188,9 @@ class GatherScatterConvolutionFuntion(Function):  # TorchLattice_v2
                 transposed,
             )
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                f"gather-scatter backward is not implemented for {grad_output.device.type}"
+            )
         return (
             grad_input,
             grad_weight,

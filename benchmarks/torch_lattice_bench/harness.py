@@ -9,7 +9,7 @@ import torch
 
 from torch_lattice import SparseTensor
 
-type Mode = Literal['cold_op', 'hot_op', 'backward']
+type Mode = Literal["cold_op", "hot_op", "backward"]
 type Params = Mapping[str, Any]
 type WorkloadMetrics = dict[str, int | float]
 type MetricFactory = Callable[[Params, Any, Any | None, Any | None], WorkloadMetrics]
@@ -35,7 +35,7 @@ class BenchmarkCase:
     def supports(self, mode: Mode) -> bool:
         if self.modes is not None and mode not in self.modes:
             return False
-        return mode != 'backward' or self.backward is not None
+        return mode != "backward" or self.backward is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,31 +55,33 @@ class BenchmarkResult:
     workload: WorkloadMetrics
     units: dict[str, float]
     skipped: bool = False
-    notes: str = ''
+    notes: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return {
-            'case': self.case,
-            'group': self.group,
-            'mode': self.mode,
-            'device': self.device,
-            'params': _jsonable(self.params),
-            'warmup': self.warmup,
-            'repeats': self.repeats,
-            'median_ms': self.median_ms,
-            'min_ms': self.min_ms,
-            'p90_ms': self.p90_ms,
-            'p95_ms': self.p95_ms,
-            'samples_ms': list(self.samples_ms),
-            'workload': self.workload,
-            'units': self.units,
-            'skipped': self.skipped,
-            'notes': self.notes,
+            "case": self.case,
+            "group": self.group,
+            "mode": self.mode,
+            "device": self.device,
+            "params": _jsonable(self.params),
+            "warmup": self.warmup,
+            "repeats": self.repeats,
+            "median_ms": self.median_ms,
+            "min_ms": self.min_ms,
+            "p90_ms": self.p90_ms,
+            "p95_ms": self.p95_ms,
+            "samples_ms": list(self.samples_ms),
+            "workload": self.workload,
+            "units": self.units,
+            "skipped": self.skipped,
+            "notes": self.notes,
         }
 
 
 type ProgressStart = Callable[[BenchmarkCase, Params, Mode, str], None]
-type ProgressResult = Callable[[BenchmarkResult, BenchmarkCase, Params, Mode, str], None]
+type ProgressResult = Callable[
+    [BenchmarkResult, BenchmarkCase, Params, Mode, str], None
+]
 type ProgressSkip = Callable[[BenchmarkCase, Params, Mode, str], None]
 type ProgressError = Callable[[BenchmarkCase, Params, Mode, str, BaseException], None]
 
@@ -89,7 +91,9 @@ class CudaTimer:
         self.start = torch.cuda.Event(enable_timing=True)
         self.end = torch.cuda.Event(enable_timing=True)
 
-    def __call__(self, fn: Callable[[], Any], warmup: int, repeats: int) -> tuple[tuple[float, ...], Any | None]:
+    def __call__(
+        self, fn: Callable[[], Any], warmup: int, repeats: int
+    ) -> tuple[tuple[float, ...], Any | None]:
         last_output = None
         for _ in range(warmup):
             last_output = fn()
@@ -126,8 +130,10 @@ def run_case(
     torch.cuda.reset_peak_memory_stats()
     samples, output = timer(action, warmup, repeats)
     memory_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
-    workload = _derive_workload_metrics(params, fixture=fixture, prepared=prepared, output=output, extra=case.metrics)
-    workload['memory_mb'] = memory_mb
+    workload = _derive_workload_metrics(
+        params, fixture=fixture, prepared=prepared, output=output, extra=case.metrics
+    )
+    workload["memory_mb"] = memory_mb
     return BenchmarkResult(
         case=case.name,
         group=case.group,
@@ -173,13 +179,22 @@ def run_cases(
                 if on_start is not None:
                     on_start(case, params, mode, device)
                 try:
-                    result = run_case(case, params, mode=mode, device=device, warmup=warmup, repeats=repeats)
+                    result = run_case(
+                        case,
+                        params,
+                        mode=mode,
+                        device=device,
+                        warmup=warmup,
+                        repeats=repeats,
+                    )
                 except Exception as error:
                     if on_error is not None:
                         on_error(case, params, mode, device, error)
                     if not keep_going:
                         raise
-                    result = _skip_result(case, params, mode, device, warmup, repeats, error)
+                    result = _skip_result(
+                        case, params, mode, device, warmup, repeats, error
+                    )
                 if result is not None:
                     if on_result is not None:
                         on_result(result, case, params, mode, device)
@@ -193,13 +208,15 @@ def force(value: Any) -> None:
         torch.cuda.synchronize()
 
 
-def _action(case: BenchmarkCase, fixture: Any, prepared: Any, mode: Mode) -> Callable[[], Any]:
-    if mode == 'cold_op':
+def _action(
+    case: BenchmarkCase, fixture: Any, prepared: Any, mode: Mode
+) -> Callable[[], Any]:
+    if mode == "cold_op":
         return lambda: case.run(case.prepare(fixture))
-    if mode == 'hot_op':
+    if mode == "hot_op":
         return lambda: case.run(prepared)
     if case.backward is None:
-        raise ValueError(f'{case.name} does not support backward.')
+        raise ValueError(f"{case.name} does not support backward.")
     return lambda: case.backward(case.prepare(fixture))
 
 
@@ -225,10 +242,12 @@ def _skip_result(
         p90_ms=None,
         p95_ms=None,
         samples_ms=(),
-        workload=_derive_workload_metrics(params, fixture=None, prepared=None, output=None),
+        workload=_derive_workload_metrics(
+            params, fixture=None, prepared=None, output=None
+        ),
         units={},
         skipped=True,
-        notes=f'{type(error).__name__}: {error}',
+        notes=f"{type(error).__name__}: {error}",
     )
 
 
@@ -263,36 +282,46 @@ def _derive_workload_metrics(
 ) -> WorkloadMetrics:
     metrics: WorkloadMetrics = {}
     for source in (params,):
-        for key, target in (('N', 'N'), ('points', 'points'), ('channels', 'channels_in'), ('kernel', 'kernel_volume')):
+        for key, target in (
+            ("N", "N"),
+            ("points", "points"),
+            ("channels", "channels_in"),
+            ("kernel", "kernel_volume"),
+        ):
             value = source.get(key)
             if isinstance(value, int | float):
                 metrics.setdefault(target, value)
     for value in (prepared, fixture):
         if isinstance(value, SparseTensor):
-            metrics.setdefault('n_in', int(value.feats.shape[0]))
-            metrics.setdefault('channels_in', int(value.feats.shape[1]))
+            metrics.setdefault("n_in", int(value.feats.shape[0]))
+            metrics.setdefault("channels_in", int(value.feats.shape[1]))
             break
     if isinstance(output, SparseTensor):
-        metrics['n_out'] = int(output.feats.shape[0])
-        metrics['channels_out'] = int(output.feats.shape[1])
-        metrics['elements'] = int(output.feats.numel())
+        metrics["n_out"] = int(output.feats.shape[0])
+        metrics["channels_out"] = int(output.feats.shape[1])
+        metrics["elements"] = int(output.feats.numel())
     elif isinstance(output, torch.Tensor):
-        metrics.setdefault('n_out', int(output.shape[0]) if output.ndim else 1)
-        metrics['elements'] = int(output.numel())
+        metrics.setdefault("n_out", int(output.shape[0]) if output.ndim else 1)
+        metrics["elements"] = int(output.numel())
     elif isinstance(output, dict):
-        coords = output.get('coords')
+        coords = output.get("coords")
         if isinstance(coords, torch.Tensor):
-            metrics['n_out'] = int(coords.shape[0])
+            metrics["n_out"] = int(coords.shape[0])
     if extra is not None:
         metrics.update(extra(params, fixture, prepared, output))
-    edges = metrics.get('edges')
-    n_out = metrics.get('n_out')
+    edges = metrics.get("edges")
+    n_out = metrics.get("n_out")
     if isinstance(edges, int | float) and isinstance(n_out, int | float) and n_out > 0:
-        metrics['avg_neighbors'] = edges / n_out
+        metrics["avg_neighbors"] = edges / n_out
     return metrics
 
 
-def _derive_units(samples: Sequence[float], params: Params, workload: WorkloadMetrics, units: Sequence[str]) -> dict[str, float]:
+def _derive_units(
+    samples: Sequence[float],
+    params: Params,
+    workload: WorkloadMetrics,
+    units: Sequence[str],
+) -> dict[str, float]:
     median_seconds = statistics.median(samples) / 1000.0
     if median_seconds <= 0.0:
         return {}
@@ -300,12 +329,16 @@ def _derive_units(samples: Sequence[float], params: Params, workload: WorkloadMe
     for unit in units or _default_units(workload):
         raw = workload.get(unit, params.get(unit))
         if isinstance(raw, int | float):
-            out[f'{unit}_per_s'] = float(raw) / median_seconds
+            out[f"{unit}_per_s"] = float(raw) / median_seconds
     return out
 
 
 def _default_units(workload: WorkloadMetrics) -> tuple[str, ...]:
-    return tuple(unit for unit in ('edges', 'elements', 'points', 'n_out', 'n_in', 'N') if unit in workload)
+    return tuple(
+        unit
+        for unit in ("edges", "elements", "points", "n_out", "n_in", "N")
+        if unit in workload
+    )
 
 
 def _percentile(samples: Sequence[float], pct: int) -> float:
@@ -329,4 +362,11 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-__all__ = ['BenchmarkCase', 'BenchmarkResult', 'Mode', 'SkipCase', 'run_case', 'run_cases']
+__all__ = [
+    "BenchmarkCase",
+    "BenchmarkResult",
+    "Mode",
+    "SkipCase",
+    "run_case",
+    "run_cases",
+]

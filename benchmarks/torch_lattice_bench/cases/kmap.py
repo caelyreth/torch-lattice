@@ -7,7 +7,12 @@ import torch
 from torch_lattice.nn.functional.conv.kmap.downsample import spdownsample
 from torch_lattice.nn.functional.conv.kmap.upsample import spupsample_generative
 
-from torch_lattice_bench.cases.common import F, SparseFixture, set_conv_config, sparse_cases
+from torch_lattice_bench.cases.common import (
+    F,
+    SparseFixture,
+    set_conv_config,
+    sparse_cases,
+)
 from torch_lattice_bench.harness import BenchmarkCase
 
 
@@ -22,15 +27,40 @@ def cases(
 ) -> tuple[BenchmarkCase, ...]:
     return sparse_cases(
         preset,
-        group='kmap',
+        group="kmap",
         specs=(
-            ('spdownsample_stride2_k2', _downsample, ('n_in',), None),
-            ('spupsample_generative_stride2_k2', _upsample, ('n_in',), None),
-            ('build_kmap_igemm_unsorted_subm_k3', _conv_kmap(F.Dataflow.ImplicitGEMM, ifsort=False, split_mask_num=1), ('edges',), None),
-            ('build_kmap_igemm_sorted_subm_k3', _conv_kmap(F.Dataflow.ImplicitGEMM, ifsort=True, split_mask_num=3), ('edges',), None),
-            ('build_kmap_fod_fused_subm_k3', _conv_kmap(F.Dataflow.FetchOnDemand, FOD_fusion=True), ('edges',), None),
-            ('build_kmap_fod_no_fusion_subm_k3', _conv_kmap(F.Dataflow.FetchOnDemand, FOD_fusion=False), ('edges',), None),
-            ('build_kmap_gather_scatter_subm_k3', _conv_kmap(F.Dataflow.GatherScatter), ('edges',), None),
+            ("spdownsample_stride2_k2", _downsample, ("n_in",), None),
+            ("spupsample_generative_stride2_k2", _upsample, ("n_in",), None),
+            (
+                "build_kmap_igemm_unsorted_subm_k3",
+                _conv_kmap(F.Dataflow.ImplicitGEMM, ifsort=False, split_mask_num=1),
+                ("edges",),
+                None,
+            ),
+            (
+                "build_kmap_igemm_sorted_subm_k3",
+                _conv_kmap(F.Dataflow.ImplicitGEMM, ifsort=True, split_mask_num=3),
+                ("edges",),
+                None,
+            ),
+            (
+                "build_kmap_fod_fused_subm_k3",
+                _conv_kmap(F.Dataflow.FetchOnDemand, FOD_fusion=True),
+                ("edges",),
+                None,
+            ),
+            (
+                "build_kmap_fod_no_fusion_subm_k3",
+                _conv_kmap(F.Dataflow.FetchOnDemand, FOD_fusion=False),
+                ("edges",),
+                None,
+            ),
+            (
+                "build_kmap_gather_scatter_subm_k3",
+                _conv_kmap(F.Dataflow.GatherScatter),
+                ("edges",),
+                None,
+            ),
         ),
         n_values=n_values,
         channels=channels,
@@ -41,7 +71,12 @@ def cases(
 
 
 def _downsample(fixture: SparseFixture) -> torch.Tensor:
-    return spdownsample(fixture.tensor.coords, stride=2, kernel_size=2, spatial_range=fixture.tensor.spatial_range[1:])
+    return spdownsample(
+        fixture.tensor.coords,
+        stride=2,
+        kernel_size=2,
+        spatial_range=fixture.tensor.spatial_range[1:],
+    )
 
 
 def _upsample(fixture: SparseFixture) -> torch.Tensor:
@@ -75,7 +110,7 @@ def _conv_kmap(dataflow: F.Dataflow, **kwargs) -> Callable[[SparseFixture], dict
             split_mask_num=cfg.split_mask_num,
             split_mask_num_bwd=cfg.split_mask_num_bwd,
             FOD_fusion=cfg.FOD_fusion,
-            IGEMM_center_only=cfg.get('IGEMM_center_only', False),
+            IGEMM_center_only=cfg.get("IGEMM_center_only", False),
             inference=True,
         )
 

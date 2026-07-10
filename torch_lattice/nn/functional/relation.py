@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from itertools import product
-from typing import Iterable, Tuple
 
 import torch
 
 from torch_lattice.utils import make_ntuple
 
-Triple = Tuple[int, int, int]
+Triple = tuple[int, int, int]
 
 __all__ = [
     "build_pool_output_coords",
@@ -25,42 +24,44 @@ def build_pool_output_coords(
     dilation=1,
     spatial_range=None,
 ) -> torch.Tensor:
-    """Return the generated sparse output support for local pooling.
+    """Generate convolution-style output support entirely on the input device."""
 
-    The relation follows the same coordinate equation as sparse convolution:
-    ``input = output * stride + kernel_offset * dilation - padding``.
-    Output coordinates are the unique coordinates that receive at least one
-    input row.
-    """
-
-    if coords.numel() == 0:
+    _validate_coords(coords)
+    if coords.shape[0] == 0:
         return coords.clone()
-
-    kernel_size = _triple(kernel_size)
-    stride = _triple(stride)
-    padding = _triple(padding)
-    dilation = _triple(dilation)
+    size = _triple(kernel_size)
+    step = _triple(stride)
+    pad = _triple(padding)
+    spacing = _triple(dilation)
     device = coords.device
-    outputs = []
-    spatial_limit = None if spatial_range is None else tuple(int(v) for v in spatial_range[1:])
-    output_limit = _output_spatial_range(spatial_limit, kernel_size, stride, padding, dilation)
-
-    spatial = coords[:, 1:].to(torch.long)
-    batch = coords[:, :1].to(torch.long)
-    for offset in _kernel_offsets(kernel_size, device=device):
-        numerator = spatial + _tensor(padding, device) - offset * _tensor(dilation, device)
-        stride_tensor = _tensor(stride, device)
-        valid = torch.all(torch.remainder(numerator, stride_tensor) == 0, dim=1)
-        out_spatial = torch.div(numerator, stride_tensor, rounding_mode="floor")
-        valid &= torch.all(out_spatial >= 0, dim=1)
-        if output_limit is not None:
-            valid &= torch.all(out_spatial < _tensor(output_limit, device), dim=1)
-        if torch.any(valid):
-            outputs.append(torch.cat([batch[valid], out_spatial[valid]], dim=1))
-
-    if not outputs:
-        return coords.new_empty((0, coords.shape[1]))
-    return torch.unique(torch.cat(outputs, dim=0).to(coords.dtype), dim=0)
+    spatial = coords[:, 1:].to(torch.int64)
+    batch = coords[:, :1].to(torch.int64)
+    offsets = _kernel_offsets(size, device=device)
+    numerator = (
+        spatial[:, None, :]
+        + _tensor(pad, device)[None, None, :]
+        - offsets[None, :, :] * _tensor(spacing, device)[None, None, :]
+    )
+    step_tensor = _tensor(step, device)[None, None, :]
+    valid = torch.all(torch.remainder(numerator, step_tensor) == 0, dim=2)
+    output_spatial = torch.div(numerator, step_tensor, rounding_mode="floor")
+    valid &= torch.all(output_spatial >= 0, dim=2)
+    if spatial_range is not None:
+        limit = _output_spatial_range(
+            tuple(int(item) for item in spatial_range[1:]),
+            size,
+            step,
+            pad,
+            spacing,
+        )
+        valid &= torch.all(
+            output_spatial < _tensor(limit, device)[None, None, :], dim=2
+        )
+    batch = batch[:, None, :].expand(-1, offsets.shape[0], -1)
+    candidates = torch.cat((batch, output_spatial), dim=2)[valid]
+    if candidates.shape[0] == 0:
+        return coords.new_empty((0, 4))
+    return torch.unique(candidates.to(coords.dtype), dim=0)
 
 
 def build_target_out_in_map(
@@ -72,44 +73,51 @@ def build_target_out_in_map(
     padding=0,
     dilation=1,
 ) -> torch.Tensor:
-    """Build a dense ``(N_target, kernel_volume)`` target-to-input relation."""
+    """Build ``(N_target, kernel_volume)`` target-to-input row indices."""
 
-    kernel_size = _triple(kernel_size)
-    stride = _triple(stride)
-    padding = _triple(padding)
-    dilation = _triple(dilation)
-    device = target_coords.device
-    out_in_map = torch.full(
-        (target_coords.shape[0], _volume(kernel_size)),
-        -1,
-        dtype=torch.int64,
-        device=device,
-    )
-    if input_coords.numel() == 0 or target_coords.numel() == 0:
-        return out_in_map
-
-    lookup = {
-        tuple(int(item) for item in row): index
-        for index, row in enumerate(input_coords.detach().cpu().tolist())
-    }
-    target_cpu = target_coords.detach().cpu().to(torch.long)
-    stride_cpu = torch.tensor(stride, dtype=torch.long)
-    padding_cpu = torch.tensor(padding, dtype=torch.long)
-    dilation_cpu = torch.tensor(dilation, dtype=torch.long)
-    values = out_in_map.cpu()
-
-    for kernel_index, offset in enumerate(_kernel_offsets(kernel_size, device=torch.device("cpu"))):
-        source_spatial = (
-            target_cpu[:, 1:] * stride_cpu
-            + offset.to(torch.long) * dilation_cpu
-            - padding_cpu
+    _validate_coords(input_coords)
+    _validate_coords(target_coords)
+    if input_coords.device != target_coords.device:
+        raise ValueError("input and target coordinates must use the same device")
+    size = _triple(kernel_size)
+    step = _triple(stride)
+    pad = _triple(padding)
+    spacing = _triple(dilation)
+    target_rows = int(target_coords.shape[0])
+    kernel_volume = _volume(size)
+    if target_rows == 0 or input_coords.shape[0] == 0:
+        return torch.full(
+            (target_rows, kernel_volume),
+            -1,
+            dtype=torch.int64,
+            device=target_coords.device,
         )
-        source = torch.cat([target_cpu[:, :1], source_spatial], dim=1)
-        for row_index, coord in enumerate(source.tolist()):
-            input_index = lookup.get(tuple(int(item) for item in coord))
-            if input_index is not None:
-                values[row_index, kernel_index] = int(input_index)
-    return values.to(device=device)
+
+    device = target_coords.device
+    target = target_coords.to(torch.int64)
+    offsets = _kernel_offsets(size, device=device)
+    source_spatial = (
+        target[:, None, 1:] * _tensor(step, device)[None, None, :]
+        + offsets[None, :, :] * _tensor(spacing, device)[None, None, :]
+        - _tensor(pad, device)[None, None, :]
+    )
+    batch = target[:, None, :1].expand(-1, kernel_volume, -1)
+    candidates = _int32_coords(
+        torch.cat((batch, source_spatial), dim=2),
+        name="target convolution candidates",
+    )
+
+    from torch_lattice.nn.functional.hash import sphash
+    from torch_lattice.nn.functional.query import sphashquery
+
+    references = _int32_coords(input_coords, name="input coordinates")
+    query_hashes = sphash(candidates.reshape(-1, 4))
+    reference_hashes = sphash(references)
+    return (
+        sphashquery(query_hashes, reference_hashes)
+        .reshape(target_rows, kernel_volume)
+        .to(torch.int64)
+    )
 
 
 def gather_scatter_kmap_from_out_in_map(
@@ -117,7 +125,7 @@ def gather_scatter_kmap_from_out_in_map(
     *,
     input_size: int,
 ) -> dict:
-    """Convert an ``out_in_map`` relation to gather/scatter convolution kmap fields."""
+    """Convert a target relation to the gather/scatter kernel-map ABI."""
 
     relation = out_in_map.to(torch.long)
     transposed = relation.t().contiguous()
@@ -133,18 +141,14 @@ def gather_scatter_kmap_from_out_in_map(
     input_mask = torch.empty(0, dtype=torch.int32, device=relation.device)
     output_mask = torch.empty(0, dtype=torch.int32, device=relation.device)
     if relation.device.type == "cuda" and nbmaps.numel() > 0:
-        try:
-            import torch_lattice.backend
+        import torch_lattice.backend
 
-            input_mask, output_mask = torch_lattice.backend.build_mask_from_kmap(
-                int(input_size),
-                output_size,
-                nbmaps.int(),
-                nbsizes[:output_size].int(),
-            )
-        except Exception:
-            input_mask = torch.empty(0, dtype=torch.int32, device=relation.device)
-            output_mask = torch.empty(0, dtype=torch.int32, device=relation.device)
+        input_mask, output_mask = torch_lattice.backend.build_mask_from_kmap(
+            int(input_size),
+            output_size,
+            nbmaps.int(),
+            nbsizes.int(),
+        )
     return {
         "out_in_map": relation,
         "nbmaps": nbmaps,
@@ -156,33 +160,60 @@ def gather_scatter_kmap_from_out_in_map(
     }
 
 
-def _kernel_offsets(kernel_size: Triple, *, device: torch.device) -> Iterable[torch.Tensor]:
-    for offset in product(range(kernel_size[0]), range(kernel_size[1]), range(kernel_size[2])):
-        yield torch.tensor(offset, dtype=torch.long, device=device)
+def _kernel_offsets(kernel_size: Triple, *, device: torch.device) -> torch.Tensor:
+    return torch.tensor(
+        list(product(*(range(item) for item in kernel_size))),
+        dtype=torch.int64,
+        device=device,
+    )
 
 
 def _output_spatial_range(
-    spatial_range: Triple | None,
+    spatial_range: Triple,
     kernel_size: Triple,
     stride: Triple,
     padding: Triple,
     dilation: Triple,
-) -> Triple | None:
-    if spatial_range is None:
-        return None
+) -> Triple:
     return tuple(
-        max(0, (spatial_range[i] + 2 * padding[i] - dilation[i] * (kernel_size[i] - 1) - 1) // stride[i] + 1)
-        for i in range(3)
+        max(
+            0,
+            (
+                spatial_range[index]
+                + 2 * padding[index]
+                - dilation[index] * (kernel_size[index] - 1)
+                - 1
+            )
+            // stride[index]
+            + 1,
+        )
+        for index in range(3)
     )
 
 
+def _validate_coords(coords: torch.Tensor) -> None:
+    if coords.ndim != 2 or coords.shape[1] != 4:
+        raise ValueError("coordinates must have shape (N, 4)")
+    if coords.dtype not in (torch.int32, torch.int64):
+        raise TypeError("coordinates must use int32 or int64 dtype")
+
+
+def _int32_coords(coords: torch.Tensor, *, name: str) -> torch.Tensor:
+    if coords.dtype == torch.int32:
+        return coords.contiguous()
+    bounds = torch.iinfo(torch.int32)
+    if torch.any(coords < bounds.min) or torch.any(coords > bounds.max):
+        raise OverflowError(f"{name} exceed the int32 native hash range")
+    return coords.to(torch.int32).contiguous()
+
+
 def _tensor(values: Triple, device: torch.device) -> torch.Tensor:
-    return torch.tensor(values, dtype=torch.long, device=device)
+    return torch.tensor(values, dtype=torch.int64, device=device)
 
 
 def _triple(value) -> Triple:
-    return make_ntuple(value, ndim=3)
+    return tuple(int(item) for item in make_ntuple(value, ndim=3))
 
 
 def _volume(value: Triple) -> int:
-    return int(value[0] * value[1] * value[2])
+    return value[0] * value[1] * value[2]

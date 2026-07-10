@@ -1,7 +1,8 @@
 Artifact APIs
 =============
 
-Artifact export is split into IO options/results, builder state, and FX lowering.
+Artifact export is split into IO options/results, graph builder state, FX
+lowering, and weight packing.
 
 .. toctree::
    :maxdepth: 1
@@ -9,3 +10,4 @@ Artifact export is split into IO options/results, builder state, and FX lowering
    io
    builder
    fx
+   weights

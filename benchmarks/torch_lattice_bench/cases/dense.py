@@ -25,12 +25,12 @@ def cases(
 ) -> tuple[BenchmarkCase, ...]:
     return sparse_cases(
         preset,
-        group='dense',
+        group="dense",
         specs=(
-            ('to_dense_forward', _to_dense, ('elements',), None),
-            ('spvoxelize_forward', _spvoxelize, ('points',), None),
-            ('spdevoxelize_forward', _spdevoxelize, ('points',), None),
-            ('calc_ti_weights', _calc_ti_weights, ('points',), None),
+            ("to_dense_forward", _to_dense, ("elements",), None),
+            ("spvoxelize_forward", _spvoxelize, ("points",), None),
+            ("spdevoxelize_forward", _spdevoxelize, ("points",), None),
+            ("calc_ti_weights", _calc_ti_weights, ("points",), None),
         ),
         n_values=n_values,
         channels=channels,
@@ -44,14 +44,16 @@ def _to_dense(fixture: SparseFixture) -> torch.Tensor:
     x = fixture.tensor
     dense_elements = math.prod(x.spatial_range) * x.feats.shape[1]
     if dense_elements > MAX_DENSE_ELEMENTS:
-        raise SkipCase(f'dense_elements={dense_elements} exceeds {MAX_DENSE_ELEMENTS}')
+        raise SkipCase(f"dense_elements={dense_elements} exceeds {MAX_DENSE_ELEMENTS}")
     return to_dense(x.feats, x.coords, x.spatial_range)
 
 
 def _spvoxelize(fixture: SparseFixture) -> torch.Tensor:
     x = fixture.tensor
     bins = max(1, x.feats.shape[0] // 4)
-    voxel_idx = torch.arange(x.feats.shape[0], device=x.feats.device, dtype=torch.int32) % bins
+    voxel_idx = (
+        torch.arange(x.feats.shape[0], device=x.feats.device, dtype=torch.int32) % bins
+    )
     counts = F.spcount(voxel_idx, bins)
     return spvoxelize(x.feats, voxel_idx, counts)
 

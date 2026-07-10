@@ -1,5 +1,3 @@
-from typing import Any, Dict, Tuple, Union, Optional, List
-
 import numpy as np
 import torch
 
@@ -62,8 +60,8 @@ def sparse_tensor_to_dense(
     num_channels=None,
     dtype=np.float16,
 ):
-    ts_pt = ts_tensor.F[: ts_tensor.C.shape[0]]
-    ts_coords = ts_tensor.C
+    ts_pt = ts_tensor.feats[: ts_tensor.coords.shape[0]]
+    ts_coords = ts_tensor.coords
 
     np_ts_pt = np.asarray(ts_pt.detach().cpu())
     np_ts_coords = np.asarray(ts_coords.detach().cpu())

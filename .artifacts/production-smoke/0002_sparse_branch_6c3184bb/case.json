@@ -1,0 +1,34 @@
+{
+  "input": {
+    "channels": 4,
+    "batch_size": 2,
+    "spatial_shape": [
+      5,
+      1,
+      1
+    ],
+    "rows_per_batch": [
+      2,
+      2
+    ],
+    "stride": [
+      1,
+      1,
+      1
+    ]
+  },
+  "merge": "cat",
+  "join": "inner",
+  "train_steps": 1,
+  "ops": [
+    "branch_cat:inner",
+    "tail_channels:8"
+  ],
+  "name": "0002_sparse_branch_6c3184bb",
+  "family": "sparse_branch",
+  "seed": 1815184571,
+  "output_kind": "sparse",
+  "input_mode": "sparse_kwargs",
+  "rtol": 0.003,
+  "atol": 0.003
+}

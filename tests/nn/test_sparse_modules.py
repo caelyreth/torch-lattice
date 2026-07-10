@@ -27,15 +27,20 @@ def test_group_norm_single_batch_matches_dense_reference():
         norm.bias.copy_(torch.tensor([0.0, 0.25, 0.5, 0.75]))
 
     out = norm(tensor)
-    ref = torch.nn.functional.group_norm(
-        feats.t().reshape(1, 4, -1),
-        num_groups=2,
-        weight=norm.weight,
-        bias=norm.bias,
-        eps=norm.eps,
-    ).reshape(4, -1).t()
+    ref = (
+        torch.nn.functional.group_norm(
+            feats.t().reshape(1, 4, -1),
+            num_groups=2,
+            weight=norm.weight,
+            bias=norm.bias,
+            eps=norm.eps,
+        )
+        .reshape(4, -1)
+        .t()
+    )
 
-    assert out._caches is tensor._caches
+    assert out.coord_manager is tensor.coord_manager
+    assert out.coord_key == tensor.coord_key
     torch.testing.assert_close(out.coords, coords)
     torch.testing.assert_close(out.feats, ref)
 
@@ -65,7 +70,9 @@ def test_group_norm_multi_batch_matches_per_sample_reference():
                 weight=None,
                 bias=None,
                 eps=norm.eps,
-            ).reshape(4, -1).t()
+            )
+            .reshape(4, -1)
+            .t()
         )
     ref = torch.cat(refs, dim=0)
 
@@ -85,8 +92,12 @@ def test_global_pool_single_batch_matches_feature_reduction():
         spatial_range=(1, 3, 1, 1),
     )
 
-    torch.testing.assert_close(F.global_avg_pool(tensor), feats.mean(dim=0, keepdim=True))
-    torch.testing.assert_close(F.global_max_pool(tensor), feats.max(dim=0, keepdim=True)[0])
+    torch.testing.assert_close(
+        F.global_avg_pool(tensor), feats.mean(dim=0, keepdim=True)
+    )
+    torch.testing.assert_close(
+        F.global_max_pool(tensor), feats.max(dim=0, keepdim=True)[0]
+    )
 
 
 def test_global_pool_multi_batch_matches_per_sample_reduction():
@@ -112,3 +123,21 @@ def test_global_pool_multi_batch_matches_per_sample_reduction():
     )
 
 
+def test_global_pool_preserves_declared_empty_batches():
+    tensor = torch_lattice.SparseTensor(
+        torch.tensor([[1.0, 3.0], [5.0, 7.0]]),
+        torch.tensor([[0, 0, 0, 0], [2, 0, 0, 0]], dtype=torch.int32),
+        spatial_range=(3, 1, 1, 1),
+        batch_counts=(1, 0, 1),
+    )
+
+    torch.testing.assert_close(
+        F.global_sum_pool(tensor),
+        torch.tensor([[1.0, 3.0], [0.0, 0.0], [5.0, 7.0]]),
+    )
+    torch.testing.assert_close(
+        F.global_avg_pool(tensor),
+        torch.tensor([[1.0, 3.0], [0.0, 0.0], [5.0, 7.0]]),
+    )
+    with pytest.raises(ValueError, match="empty batches"):
+        F.global_max_pool(tensor)

@@ -45,9 +45,9 @@ What is intentionally different
    * - Convolution intent
      - Some stride-1 spatial ``Conv3d`` usage historically behaved like the
        intended submanifold path by convention.
-     - Support behavior is explicit: ``SubmConv3d`` preserves support,
-       ``Conv3d`` generates support, and ``TargetConv3d`` computes on caller
-       targets.
+     - Support behavior is explicit: ``SubmConv3d`` preserves support and
+       ``Conv3d`` generates support or consumes an explicit
+       ``coordinates=target`` support.
    * - Artifact export
      - No stable MLX artifact contract.
      - Exports ``graph.mlir`` plus ``weights.safetensors`` through the lattice
@@ -90,8 +90,9 @@ semantics. Do not mechanically replace every old ``torchsparse.nn.Conv3d`` with
      - Pick based on whether the operation consumes an existing relation or
        generates output support.
    * - Convolution at known output coordinates
-     - ``TargetConv3d``
-     - The target support is part of the caller's graph state.
+     - ``Conv3d(...)(x, coordinates=target)``
+     - The target support is part of the caller's graph state, while parameter
+       ownership remains in the ordinary convolution module.
 
 A useful check while porting is to compare coordinate counts before and after a
 layer. If the original layer was intended to keep exactly the same coordinate set,
@@ -168,8 +169,8 @@ not be treated as a Torch checkpoint.
      - Sparse graph structure, operation names, attributes, inputs, and outputs.
    * - ``weights.safetensors``
      - Named parameter tensors consumed by the graph.
-   * - metadata
-     - Loader-facing artifact identity and IO bookkeeping.
+   * - ``graph.mlir`` module attributes
+     - Loader-facing artifact identity and IO bookkeeping embedded in the graph.
 
 For exportable models, avoid depending on Python control flow that FX cannot see
 from example inputs. Use explicit modules, stable state-dict names, and supported

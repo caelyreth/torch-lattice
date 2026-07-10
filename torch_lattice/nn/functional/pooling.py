@@ -11,6 +11,8 @@ from .relation import build_pool_output_coords, build_target_out_in_map
 
 __all__ = [
     "avg_pool3d",
+    "global_pool",
+    "global_sum_pool",
     "global_avg_pool",
     "global_max_pool",
     "max_pool3d",
@@ -56,7 +58,7 @@ def pool3d(
     )
     feats = _pool_features(inputs.feats, relation, mode)
     output_stride = tuple(inputs.stride[index] * stride[index] for index in range(3))
-    output = SparseTensor(
+    return inputs.with_coordinates(
         feats=feats,
         coords=output_coords,
         stride=output_stride,
@@ -68,9 +70,6 @@ def pool3d(
             dilation,
         ),
     )
-    output._caches = inputs._caches
-    output._caches.cmaps.setdefault(output.stride, (output.coords, output.spatial_range))
-    return output
 
 
 def sum_pool3d(inputs: SparseTensor, **kwargs) -> SparseTensor:
@@ -85,43 +84,75 @@ def avg_pool3d(inputs: SparseTensor, **kwargs) -> SparseTensor:
     return pool3d(inputs, mode="avg", **kwargs)
 
 
-def global_avg_pool(inputs: SparseTensor) -> torch.Tensor:
-    if (
-        inputs.spatial_range is not None
-        and len(inputs.spatial_range) > 0
-        and inputs.spatial_range[0] == 1
-    ):
-        return torch.mean(inputs.feats, dim=0, keepdim=True)
+def global_pool(
+    inputs: SparseTensor,
+    *,
+    mode: Literal["sum", "avg", "max"] = "sum",
+    batch_size: int | None = None,
+) -> torch.Tensor:
+    """Reduce sparse features independently for every declared batch."""
 
-    batch_size = torch.max(inputs.coords[:, 0]).item() + 1
-    outputs = []
-    for k in range(batch_size):
-        input = inputs.feats[inputs.coords[:, 0] == k]
-        output = torch.mean(input, dim=0)
-        outputs.append(output)
-    outputs = torch.stack(outputs, dim=0)
-    return outputs
-
-
-def global_max_pool(inputs: SparseTensor) -> torch.Tensor:
-    if (
-        inputs.spatial_range is not None
-        and len(inputs.spatial_range) > 0
-        and inputs.spatial_range[0] == 1
-    ):
-        return torch.max(inputs.feats, dim=0, keepdim=True)[0]
-
-    batch_size = torch.max(inputs.coords[:, 0]).item() + 1
-    outputs = []
-    for k in range(batch_size):
-        input = inputs.feats[inputs.coords[:, 0] == k]
-        output = torch.max(input, dim=0)[0]
-        outputs.append(output)
-    outputs = torch.stack(outputs, dim=0)
-    return outputs
+    if mode not in {"sum", "avg", "max"}:
+        raise ValueError("global pool mode must be 'sum', 'avg', or 'max'")
+    batch_size = _batch_size(inputs, batch_size)
+    channels = int(inputs.feats.shape[1])
+    batch = inputs.coords[:, 0].to(torch.long)
+    if torch.any(batch < 0) or torch.any(batch >= batch_size):
+        raise ValueError("coordinate batch indices exceed the declared batch size")
+    counts = torch.bincount(batch, minlength=batch_size)
+    if mode == "max" and torch.any(counts == 0):
+        raise ValueError("global max pooling does not accept empty batches")
+    if mode in {"sum", "avg"}:
+        output = inputs.feats.new_zeros((batch_size, channels))
+        output.index_add_(0, batch, inputs.feats)
+        if mode == "avg":
+            output = output / counts.clamp_min(1).to(inputs.feats.dtype).unsqueeze(1)
+        return output
+    output = inputs.feats.new_full((batch_size, channels), -torch.inf)
+    rows = batch.view(-1, 1).expand(-1, channels)
+    return output.scatter_reduce_(
+        0, rows, inputs.feats, reduce="amax", include_self=True
+    )
 
 
-def _pool_features(feats: torch.Tensor, relation: torch.Tensor, mode: PoolMode) -> torch.Tensor:
+def global_sum_pool(
+    inputs: SparseTensor, *, batch_size: int | None = None
+) -> torch.Tensor:
+    return global_pool(inputs, mode="sum", batch_size=batch_size)
+
+
+def global_avg_pool(
+    inputs: SparseTensor, *, batch_size: int | None = None
+) -> torch.Tensor:
+    return global_pool(inputs, mode="avg", batch_size=batch_size)
+
+
+def global_max_pool(
+    inputs: SparseTensor, *, batch_size: int | None = None
+) -> torch.Tensor:
+    return global_pool(inputs, mode="max", batch_size=batch_size)
+
+
+def _batch_size(inputs: SparseTensor, explicit: int | None) -> int:
+    inferred = (
+        len(inputs.batch_counts)
+        if inputs.batch_counts is not None
+        else int(inputs.spatial_range[0])
+        if inputs.spatial_range is not None
+        else int(inputs.coords[:, 0].max().item()) + 1
+        if inputs.coords.shape[0] > 0
+        else 0
+    )
+    if explicit is None:
+        return inferred
+    if explicit < inferred:
+        raise ValueError("batch_size is smaller than the sparse batch metadata")
+    return int(explicit)
+
+
+def _pool_features(
+    feats: torch.Tensor, relation: torch.Tensor, mode: PoolMode
+) -> torch.Tensor:
     output_size = int(relation.shape[0])
     channels = int(feats.shape[1])
     valid = relation >= 0

@@ -10,11 +10,14 @@ __all__ = ["sphash"]
 def sphash(
     coords: torch.Tensor, offsets: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
-    assert coords.dtype == torch.int, coords.dtype
-    assert coords.ndim == 2 and coords.shape[1] == 4, coords.shape
+    """Hash ``(batch, x, y, z)`` int32 coordinate rows."""
+
+    if coords.dtype != torch.int32:
+        raise TypeError("coords must use int32 dtype")
+    if coords.ndim != 2 or coords.shape[1] != 4:
+        raise ValueError("coords must have shape (N, 4)")
     coords = coords.contiguous()
 
-    # TODO(Zhijian): We might be able to merge `hash_kernel` and `hash`.
     if offsets is None:
         if coords.device.type == "cuda":
             return torch_lattice.backend.hash_cuda(coords)
@@ -24,8 +27,10 @@ def sphash(
             device = coords.device
             return torch_lattice.backend.hash_cpu(coords.cpu()).to(device)
     else:
-        assert offsets.dtype == torch.int, offsets.dtype
-        assert offsets.ndim == 2 and offsets.shape[1] == 3, offsets.shape
+        if offsets.dtype != torch.int32:
+            raise TypeError("offsets must use int32 dtype")
+        if offsets.ndim != 2 or offsets.shape[1] != 3:
+            raise ValueError("offsets must have shape (K, 3)")
         offsets = offsets.contiguous()
 
         if coords.device.type == "cuda":
@@ -34,6 +39,6 @@ def sphash(
             return torch_lattice.backend.kernel_hash_cpu(coords, offsets)
         else:
             device = coords.device
-            return torch_lattice.backend.kernel_hash_cpu(coords.cpu(), offsets.cpu()).to(
-                device
-            )
+            return torch_lattice.backend.kernel_hash_cpu(
+                coords.cpu(), offsets.cpu()
+            ).to(device)

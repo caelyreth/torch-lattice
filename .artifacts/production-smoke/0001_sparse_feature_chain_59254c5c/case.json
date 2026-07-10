@@ -1,0 +1,39 @@
+{
+  "input": {
+    "channels": 2,
+    "batch_size": 1,
+    "spatial_shape": [
+      7,
+      2,
+      2
+    ],
+    "rows_per_batch": [
+      10
+    ],
+    "stride": [
+      1,
+      1,
+      1
+    ]
+  },
+  "ops": [
+    "subm1:2->5",
+    "subm1:5->3",
+    "GELU",
+    "LayerNorm",
+    "subm1:3->8",
+    "RMSNorm",
+    "subm1:8->3",
+    "Tanh",
+    "subm1:3->5",
+    "SiLU"
+  ],
+  "train_steps": 1,
+  "name": "0001_sparse_feature_chain_59254c5c",
+  "family": "sparse_feature_chain",
+  "seed": 1495616604,
+  "output_kind": "sparse",
+  "input_mode": "sparse_kwargs",
+  "rtol": 0.002,
+  "atol": 0.002
+}

@@ -5,7 +5,11 @@ import torch
 
 from torch_lattice import nn as spnn
 from torch_lattice.nn import functional as F
-from tests.support import assert_same_sparse_coords, line_sparse_case, two_batch_sparse_case
+from tests.support import (
+    assert_same_sparse_coords,
+    line_sparse_case,
+    two_batch_sparse_case,
+)
 
 pytestmark = pytest.mark.nn
 
@@ -48,7 +52,9 @@ def test_group_norm_multi_batch_matches_per_sample_reference() -> None:
                 weight=None,
                 bias=None,
                 eps=norm.eps,
-            ).reshape(2, -1).t()
+            )
+            .reshape(2, -1)
+            .t()
             for batch in (0, 1)
         ],
         dim=0,
@@ -75,9 +81,9 @@ def test_conv_modules_use_pointwise_cpu_safe_path() -> None:
     torch.testing.assert_close(support_preserving.feats, x.feats * 2)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA is required')
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 def test_conv_modules_cuda_forward_and_subm_use_distinct_support_semantics() -> None:
-    x = line_sparse_case(channels=1, rows=3).tensor(device='cuda')
+    x = line_sparse_case(channels=1, rows=3).tensor(device="cuda")
     conv = spnn.Conv3d(1, 1, kernel_size=(3, 1, 1), bias=False).cuda()
     subm = spnn.SubmConv3d(1, 1, kernel_size=(3, 1, 1), bias=False).cuda()
     with torch.no_grad():

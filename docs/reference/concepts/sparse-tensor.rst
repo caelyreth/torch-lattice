@@ -25,9 +25,17 @@ Stride and spatial shape
 input coordinate space. Downsampling convolutions and pooling increase stride;
 submanifold operators preserve it.
 
-``SparseTensor.spatial_range`` and cached coordinate maps are implementation
-support for kernel-map construction. User code should treat coordinates, stride,
-and features as the stable public state.
+``SparseTensor.coord_manager`` owns coordinate maps and cached sparse relations.
+``SparseTensor.coord_key`` identifies one exact support inside that manager.
+Feature-only operations preserve both values; crop, pooling, joins that change
+rows, and support-generating convolutions create a new key. Cache reuse therefore
+depends on coordinate identity and kernel execution attributes rather than stride
+alone.
+
+``SparseTensor.spatial_range`` declares ``(batch, x, y, z)`` capacity when it is
+known. ``batch_counts`` optionally records active rows per batch, including empty
+batches. Supplying it avoids inferring batch partitions from device data and is
+recommended for global pooling and artifact export.
 
 Batching
 --------

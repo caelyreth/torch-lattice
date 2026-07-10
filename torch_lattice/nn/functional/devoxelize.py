@@ -6,8 +6,6 @@ from typing import Literal
 import torch
 from torch.autograd import Function
 
-# from torch.cuda.amp import custom_bwd, custom_fwd
-
 import torch_lattice.backend
 from torch_lattice import SparseTensor
 
@@ -65,9 +63,13 @@ class DevoxelizeFunction(Function):
         weights = weights.contiguous()
 
         if feats.device.type == "cuda":
-            output = torch_lattice.backend.devoxelize_forward_cuda(feats, coords, weights)
+            output = torch_lattice.backend.devoxelize_forward_cuda(
+                feats, coords, weights
+            )
         elif feats.device.type == "cpu":
-            output = torch_lattice.backend.devoxelize_forward_cpu(feats, coords, weights)
+            output = torch_lattice.backend.devoxelize_forward_cpu(
+                feats, coords, weights
+            )
         else:
             device = feats.device
             output = torch_lattice.backend.devoxelize_forward_cpu(
@@ -136,9 +138,13 @@ def _linear_devoxelize(normalized, voxels, batch_indices):
     frac = (normalized - base.to(normalized.dtype)).to(voxels.feats.dtype)
     output = voxels.feats.new_zeros((normalized.shape[0], voxels.feats.shape[1]))
     for corner in product((0, 1), repeat=3):
-        corner_tensor = torch.tensor(corner, dtype=torch.int64, device=normalized.device)
+        corner_tensor = torch.tensor(
+            corner, dtype=torch.int64, device=normalized.device
+        )
         spatial = base + corner_tensor
-        weight = torch.ones(normalized.shape[0], dtype=voxels.feats.dtype, device=normalized.device)
+        weight = torch.ones(
+            normalized.shape[0], dtype=voxels.feats.dtype, device=normalized.device
+        )
         for axis, bit in enumerate(corner):
             weight = weight * (frac[:, axis] if bit else (1 - frac[:, axis]))
         indices = _lookup_indices(voxels.coords, batch_indices, spatial)
@@ -152,7 +158,10 @@ def _lookup_indices(voxel_coords, batch_indices, spatial):
         for index, row in enumerate(voxel_coords.detach().cpu().tolist())
     }
     rows = torch.cat([batch_indices.to(torch.int64).view(-1, 1), spatial], dim=1)
-    values = [lookup.get(tuple(int(item) for item in row), -1) for row in rows.detach().cpu().tolist()]
+    values = [
+        lookup.get(tuple(int(item) for item in row), -1)
+        for row in rows.detach().cpu().tolist()
+    ]
     return torch.tensor(values, dtype=torch.long, device=spatial.device)
 
 
@@ -168,9 +177,13 @@ def _active_point_rows(points, batch_indices, active_rows):
     if points.ndim != 2 or points.shape[1] != 3:
         raise ValueError("points must have shape (N, 3).")
     if batch_indices is None:
-        batch_indices = torch.zeros(points.shape[0], dtype=torch.int64, device=points.device)
+        batch_indices = torch.zeros(
+            points.shape[0], dtype=torch.int64, device=points.device
+        )
     if active_rows is not None:
-        active = int(active_rows.item() if isinstance(active_rows, torch.Tensor) else active_rows)
+        active = int(
+            active_rows.item() if isinstance(active_rows, torch.Tensor) else active_rows
+        )
         points = points[:active]
         batch_indices = batch_indices[:active]
     return points, batch_indices

@@ -1,0 +1,33 @@
+{
+  "input": {
+    "channels": 2,
+    "batch_size": 3,
+    "spatial_shape": [
+      5,
+      2,
+      3
+    ],
+    "rows_per_batch": [
+      9,
+      7,
+      5
+    ],
+    "stride": [
+      1,
+      1,
+      1
+    ]
+  },
+  "target_rows": 17,
+  "train_steps": 1,
+  "ops": [
+    "target_conv:5->3"
+  ],
+  "name": "0003_target_branch_0a69c763",
+  "family": "target_branch",
+  "seed": 174704483,
+  "output_kind": "sparse",
+  "input_mode": "sparse_kwargs",
+  "rtol": 0.003,
+  "atol": 0.003
+}

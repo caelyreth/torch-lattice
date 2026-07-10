@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Tuple, Union
 
 import numpy as np
@@ -20,6 +21,7 @@ from tests.cases.dense_reference import (
 )
 
 pytestmark = [pytest.mark.ops, pytest.mark.conv]
+conv_impl = import_module("torch_lattice.nn.functional.conv.conv")
 
 
 class TestSparseConv(nn.Module):
@@ -213,16 +215,13 @@ def check_single_layer_convolution_forward(
     ref_out = ref_model(dense_feats_t)
     out = model(feats_t, coords_t)
 
-    ts_coords = out.C
+    ts_coords = out.coords
     ts_coords_np = np.asarray(ts_coords.detach().cpu())
 
     ref_out_np = ref_out.detach().cpu().numpy()
     ref_out_subm_np = dense_to_subm(ref_out_np, ts_coords_np)
 
     out_dense_np = sparse_tensor_to_dense(out, ref_out_np.shape[2:], OC, dtype=np_dtype)
-
-    # print(out.C)
-    # print(out.F)
 
     # print(ref_out_np)
     # print(out_dense_np)
@@ -267,7 +266,7 @@ def test_subm_implicit_gemm_prunes_impossible_thin_shape_offsets():
         spatial_range=(1, points, 1, 1),
     )
     out = F.conv3d(x, weight, 3, padding=1, config=config, training=True, subm=True)
-    kmap = next(iter(x._caches.kmaps.values()))
+    kmap = x.coord_manager.cached_relations[0]
     assert kmap["out_in_map"].shape[1] == 3
     assert kmap["active_kernel_offsets"].detach().cpu().tolist() == [12, 13, 14]
 
@@ -372,8 +371,8 @@ def test_implicit_gemm_conv3d_no_grad_fast_path_dispatch(monkeypatch):
             device=weight.device,
         )
 
-    monkeypatch.setattr(F.conv, "implicit_gemm_forward_no_grad", fake_fast)
-    monkeypatch.setattr(F.conv.ImplicitGEMMConvolutionFuntion, "apply", fake_apply)
+    monkeypatch.setattr(conv_impl, "implicit_gemm_forward_no_grad", fake_fast)
+    monkeypatch.setattr(conv_impl.ImplicitGEMMConvolutionFuntion, "apply", fake_apply)
 
     F.conv3d(
         torch_lattice.SparseTensor(feats, coords),
@@ -446,7 +445,7 @@ def test_conv3d_no_grad_fast_path_dispatches_non_igemm_dataflows(
     config.dataflow = dataflow
     config.kmap_mode = "hashmap_on_the_fly"
     for key, value in kwargs.items():
-        config[key] = value
+        setattr(config, key, value)
     seen = {"fast": 0, "apply": 0}
 
     def fake_fast(input, weight, kmap, config, transposed):
@@ -467,8 +466,8 @@ def test_conv3d_no_grad_fast_path_dispatches_non_igemm_dataflows(
             device=weight.device,
         )
 
-    monkeypatch.setattr(F.conv, fast_name, fake_fast)
-    monkeypatch.setattr(getattr(F.conv, function_name), "apply", fake_apply)
+    monkeypatch.setattr(conv_impl, fast_name, fake_fast)
+    monkeypatch.setattr(getattr(conv_impl, function_name), "apply", fake_apply)
 
     with torch.no_grad():
         F.conv3d(
@@ -490,7 +489,9 @@ def test_conv3d_no_grad_fast_path_dispatches_non_igemm_dataflows(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
-@pytest.mark.parametrize("dataflow", [F.Dataflow.FetchOnDemand, F.Dataflow.GatherScatter])
+@pytest.mark.parametrize(
+    "dataflow", [F.Dataflow.FetchOnDemand, F.Dataflow.GatherScatter]
+)
 @pytest.mark.parametrize("spatial_range", [(1, 96, 1, 1), (1, 32, 32, 1)])
 def test_non_igemm_no_grad_compact_kmap_matches_full_weight_reference(
     dataflow, spatial_range
@@ -581,7 +582,9 @@ def test_native_fod_compactor_matches_reference_layout():
         ref_nbmaps[:, 0] * results.size(1) + ref_nbmaps[:, 1]
     ]
     ref_nbmaps = ref_nbmaps.transpose(0, 1).int().contiguous()
-    ref_nbaddrs = torch.zeros((ref_nbsizes.numel() + 1), dtype=torch.int32, device="cuda")
+    ref_nbaddrs = torch.zeros(
+        (ref_nbsizes.numel() + 1), dtype=torch.int32, device="cuda"
+    )
     ref_qnbaddrs = torch.zeros_like(ref_nbaddrs)
     torch_lattice.backend.exclusive_scan_quantified_wrapper(
         ref_nbsizes.numel(), ref_nbsizes, ref_nbaddrs, ref_qnbaddrs

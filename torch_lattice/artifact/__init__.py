@@ -6,8 +6,9 @@ from .io import (
     LatticeModelArtifactOptions,
     save_lattice_model_artifact,
 )
-from .builder import ArtifactValue, TorchLatticeArtifactBuilder, dequantize_artifact_weight
+from .builder import ArtifactValue, TorchLatticeArtifactBuilder
 from .fx import LatticeTracer, lower_fx_artifact
+from .weights import dequantize_artifact_weight
 
 __all__ = [
     "ArtifactValue",

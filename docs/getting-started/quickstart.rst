@@ -53,9 +53,10 @@ The convolution class name is part of the semantic contract:
    * - ``Conv3d``
      - Generate output coordinates according to kernel and stride.
      - Downsampling or support-expanding forward convolution.
-   * - ``TargetConv3d``
+   * - ``Conv3d(...)(x, coordinates=target)``
      - Produce values only at caller-provided target coordinates.
-     - Cross-support or detector/head style projections.
+     - Cross-support or detector/head style projections without a second
+       convolution class.
    * - ``ConvTranspose3d``
      - Transposed sparse relation.
      - Upsampling.
@@ -71,21 +72,20 @@ The bundle can then be copied to a Mac and loaded by ``mlx-lattice``.
 
 .. code-block:: python
 
-   from torch_lattice.artifact import LatticeModelArtifactOptions, save_lattice_model_artifact
-
-   options = LatticeModelArtifactOptions(
-       input_name='input',
-       output_name='output',
-   )
+   from torch_lattice.artifact import save_lattice_model_artifact
 
    result = save_lattice_model_artifact(
-       model,
+       model.eval(),
+       'artifacts/example-model',
        example_inputs=(x,),
-       output_dir='artifacts/example-model',
-       options=options,
+       output_names=('logits',),
    )
    print(result.graph_path)
    print(result.weights_path)
 
 For production export, prefer explicit modules and stable module names. They make
 artifact diffs, replay failures, and state-dict review much easier to diagnose.
+Export is eval-only and ``example_inputs`` is required: the values define input
+names, sparse strides, channel counts, dtypes, and dense tensor shapes in the
+public artifact ABI. The exporter writes exactly ``graph.mlir`` and
+``weights.safetensors``.

@@ -1,4 +1,4 @@
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union
 
 import torch
 
@@ -14,8 +14,8 @@ def spupsample_generative(
     _coords: torch.Tensor,
     stride: Union[int, Tuple[int, ...]] = 2,
     kernel_size: Union[int, Tuple[int, ...]] = 2,
-    padding: torch.Tensor = 0,
-    spatial_range: Optional[Tuple[int]] = None,
+    padding: int | Tuple[int, ...] = 0,
+    spatial_range: Tuple[int, ...] | None = None,
 ) -> torch.Tensor:
     stride = make_ntuple(stride, ndim=3)
     kernel_size = make_ntuple(kernel_size, ndim=3)
@@ -25,13 +25,11 @@ def spupsample_generative(
     ).unsqueeze(0)
     # stride and dilation are both 1
     kernel_offsets = get_kernel_offsets(kernel_size, 1, 1, device=_coords.device)
-    assert (
-        spatial_range is not None
-    ), "spatial range must be specified in generative mode"
+    if spatial_range is None:
+        raise ValueError("spatial_range is required in generative mode")
     if (
         _coords.device.type == "cuda"
         and _coords.dtype == torch.int32
-        and not torch_lattice.tensor.get_allow_negative_coordinates()
         and all(p == 0 for p in padding)
         and all(stride[k] == kernel_size[k] for k in range(3))
         and all(

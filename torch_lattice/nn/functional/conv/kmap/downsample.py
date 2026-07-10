@@ -1,4 +1,4 @@
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union
 
 import torch
 
@@ -13,11 +13,12 @@ def spdownsample(
     _coords: torch.Tensor,
     stride: Union[int, Tuple[int, ...]] = 2,
     kernel_size: Union[int, Tuple[int, ...]] = 2,
-    padding: torch.Tensor = 0,
-    spatial_range: Optional[Tuple[int]] = None,
+    padding: int | Tuple[int, ...] = 0,
+    spatial_range: Tuple[int, ...] | None = None,
     downsample_mode: str = "spconv",
 ) -> torch.Tensor:
-    assert downsample_mode in ["spconv", "minkowski"]
+    if downsample_mode not in {"spconv", "minkowski"}:
+        raise ValueError("downsample_mode must be 'spconv' or 'minkowski'")
 
     stride = make_ntuple(stride, ndim=3)
     kernel_size = make_ntuple(kernel_size, ndim=3)
@@ -35,17 +36,14 @@ def spdownsample(
         if (
             _coords.device.type == "cuda"
             and _coords.dtype == torch.int32
-            and not torch_lattice.tensor.get_allow_negative_coordinates()
+            and not torch.any(_coords[:, 1:] < 0)
             and hasattr(torch_lattice.backend, "downsample_simple_cuda")
         ):
             stride_t = make_tensor(stride, dtype=torch.int, device=_coords.device)
             if spatial_range is not None:
                 coords_max = make_tensor(
                     (0,)
-                    + tuple(
-                        (int(spatial_range[k]) - 1) // stride[k]
-                        for k in range(3)
-                    ),
+                    + tuple((int(spatial_range[k]) - 1) // stride[k] for k in range(3)),
                     dtype=torch.int,
                     device=_coords.device,
                 )
@@ -81,15 +79,9 @@ def spdownsample(
                     coords_max[1:] + 2 * padding_t - (kernel_size_t - 1)
                 ) // stride_t
 
-            if torch_lattice.tensor.get_allow_negative_coordinates():
-                coords_min = _coords.min(0).values
-                coords_min[1:] = torch.div(
-                    coords_min[1:] - 2 * padding_t + (kernel_size_t - 1), stride_t
-                )
-            else:
-                coords_min = make_tensor(
-                    (0, 0, 0, 0), dtype=torch.int, device=_coords.device
-                )
+            coords_min = make_tensor(
+                (0, 0, 0, 0), dtype=torch.int, device=_coords.device
+            )
 
             out_coords = torch_lattice.backend.downsample_cuda(
                 _coords,
@@ -101,4 +93,6 @@ def spdownsample(
             )
             return out_coords
         else:
-            raise NotImplementedError
+            raise NotImplementedError(
+                "general sparse downsampling currently requires CUDA"
+            )

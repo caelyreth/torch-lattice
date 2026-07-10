@@ -21,7 +21,7 @@ from torch_lattice.artifact import (
 )
 from torch_lattice.nn.functional.conv import Dataflow, conv_config
 
-ROOT = Path('/tmp/torch_lattice_e2e_fixtures')
+ROOT = Path("/tmp/torch_lattice_e2e_fixtures")
 
 
 def main() -> None:
@@ -30,24 +30,24 @@ def main() -> None:
     ROOT.mkdir(parents=True)
     torch.manual_seed(7)
     cases = [
-        'sparse_classifier',
-        'target_branch',
-        'point_voxel',
-        'quantized_classifier_int8',
-        'quantized_classifier_int4',
-        'transpose_convolution',
-        'generative_transpose_convolution',
+        "sparse_classifier",
+        "target_branch",
+        "point_voxel",
+        "quantized_classifier_int8",
+        "quantized_classifier_int4",
+        "transpose_convolution",
+        "generative_transpose_convolution",
     ]
-    _sparse_classifier(ROOT / 'sparse_classifier')
-    _target_branch(ROOT / 'target_branch')
-    _point_voxel(ROOT / 'point_voxel')
-    _quantized_classifier(ROOT / 'quantized_classifier_int8', bits=8)
-    _quantized_classifier(ROOT / 'quantized_classifier_int4', bits=4)
-    _transpose_convolution(ROOT / 'transpose_convolution')
-    _generative_transpose_convolution(ROOT / 'generative_transpose_convolution')
-    (ROOT / 'manifest.json').write_text(
-        json.dumps({'cases': cases}, indent=2),
-        encoding='utf-8',
+    _sparse_classifier(ROOT / "sparse_classifier")
+    _target_branch(ROOT / "target_branch")
+    _point_voxel(ROOT / "point_voxel")
+    _quantized_classifier(ROOT / "quantized_classifier_int8", bits=8)
+    _quantized_classifier(ROOT / "quantized_classifier_int4", bits=4)
+    _transpose_convolution(ROOT / "transpose_convolution")
+    _generative_transpose_convolution(ROOT / "generative_transpose_convolution")
+    (ROOT / "manifest.json").write_text(
+        json.dumps({"cases": cases}, indent=2),
+        encoding="utf-8",
     )
     print(ROOT)
 
@@ -57,7 +57,7 @@ def _conv_dataflow(
     dataflow: Dataflow,
     *,
     kmap_mode: str | None = None,
- ) -> Iterator[None]:
+) -> Iterator[None]:
     previous = conv_config.get_global_conv_config()
     config = conv_config.get_default_conv_config()
     config.dataflow = dataflow
@@ -105,12 +105,12 @@ class TargetBranch(nn.Module):
         super().__init__()
         self.left = spnn.Conv3d(2, 3, kernel_size=1, bias=True)
         self.right = spnn.Conv3d(2, 3, kernel_size=1, bias=False)
-        self.target_conv = spnn.TargetConv3d(3, 2, kernel_size=1, bias=True)
+        self.target_conv = spnn.Conv3d(3, 2, kernel_size=1, bias=True)
 
     def forward(self, x: SparseTensor, target: SparseTensor) -> SparseTensor:
-        merged = torch_lattice.sparse_add(self.left(x), self.right(x), join='outer')
-        sampled = self.target_conv(merged, target)
-        return torch_lattice.cat([merged, sampled], join='inner')
+        merged = torch_lattice.sparse_add(self.left(x), self.right(x), join="outer")
+        sampled = self.target_conv(merged, coordinates=target)
+        return torch_lattice.cat([merged, sampled], join="inner")
 
 
 class PointVoxel(nn.Module):
@@ -128,7 +128,7 @@ class PointVoxel(nn.Module):
             active_rows=active_rows,
             voxel_size=(1.0, 1.0, 1.0),
             origin=(0.0, 0.0, 0.0),
-            reduction='mean',
+            reduction="mean",
         )
         return torch_lattice.devoxelize(
             points,
@@ -137,7 +137,7 @@ class PointVoxel(nn.Module):
             point_active_rows=active_rows,
             voxel_size=(1.0, 1.0, 1.0),
             origin=(0.0, 0.0, 0.0),
-            interpolation='nearest',
+            interpolation="nearest",
         )
 
 
@@ -184,11 +184,11 @@ def _sparse_classifier(case_dir: Path) -> None:
     save_lattice_model_artifact(
         model,
         case_dir,
-        sample_input=x,
+        example_inputs=(x,),
         options=LatticeModelArtifactOptions(batch_size=2),
     )
-    _save_sparse_inputs(case_dir, '', x)
-    save_file({'output': expected}, case_dir / 'expected.safetensors')
+    _save_sparse_inputs(case_dir, "x", x)
+    save_file({"output": expected}, case_dir / "expected.safetensors")
 
 
 def _quantized_classifier(case_dir: Path, *, bits: int) -> None:
@@ -215,15 +215,15 @@ def _quantized_classifier(case_dir: Path, *, bits: int) -> None:
     save_lattice_model_artifact(
         model,
         case_dir,
-        sample_input=x,
+        example_inputs=(x,),
         options=LatticeModelArtifactOptions(
             batch_size=2,
             quantize_bits=bits,
             quantize_group_size=32,
         ),
     )
-    _save_sparse_inputs(case_dir, '', x)
-    save_file({'output': expected}, case_dir / 'expected.safetensors')
+    _save_sparse_inputs(case_dir, "x", x)
+    save_file({"output": expected}, case_dir / "expected.safetensors")
 
 
 def _target_branch(case_dir: Path) -> None:
@@ -255,11 +255,11 @@ def _target_branch(case_dir: Path) -> None:
         optimizer.step()
     model.eval()
     expected = model(x, target)
-    builder = TorchLatticeArtifactBuilder(input_dtype='f32')
-    target_value = builder.sparse_argument('target', channels=1)
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32")
+    target_value = builder.sparse_argument("target", channels=1)
     lower_fx_artifact(builder, model, inputs=(builder.current, target_value))
     builder.save(case_dir)
-    _save_sparse_inputs(case_dir, '', x, extra={'target': target})
+    _save_sparse_inputs(case_dir, "x", x, extra={"target": target})
     _save_sparse_expected(case_dir, expected)
 
 
@@ -283,11 +283,11 @@ def _point_voxel(case_dir: Path) -> None:
     batch_indices = torch.zeros((5,), dtype=torch.int32)
     active_rows = torch.tensor([5], dtype=torch.int32)
     expected = model(points, features, batch_indices, active_rows).detach()
-    builder = TorchLatticeArtifactBuilder(input_dtype='f32', create_default_input=False)
-    points_value = builder.dense_argument('points', 'tensor<?x3xf32>')
-    features_value = builder.dense_argument('features', 'tensor<?x2xf32>', channels=2)
-    batch_value = builder.dense_argument('batch_indices', 'tensor<?xi32>')
-    active_value = builder.dense_argument('active_rows', 'tensor<1xi32>')
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32", create_default_input=False)
+    points_value = builder.dense_argument("points", "tensor<?x3xf32>")
+    features_value = builder.dense_argument("features", "tensor<?x2xf32>", channels=2)
+    batch_value = builder.dense_argument("batch_indices", "tensor<?xi32>")
+    active_value = builder.dense_argument("active_rows", "tensor<1xi32>")
     lower_fx_artifact(
         builder,
         model,
@@ -296,14 +296,14 @@ def _point_voxel(case_dir: Path) -> None:
     builder.save(case_dir)
     save_file(
         {
-            'points': points,
-            'features': features,
-            'batch_indices': batch_indices,
-            'active_rows': active_rows,
+            "points": points,
+            "features": features,
+            "batch_indices": batch_indices,
+            "active_rows": active_rows,
         },
-        case_dir / 'inputs.safetensors',
+        case_dir / "inputs.safetensors",
     )
-    save_file({'output': expected}, case_dir / 'expected.safetensors')
+    save_file({"output": expected}, case_dir / "expected.safetensors")
 
 
 def _transpose_convolution(case_dir: Path) -> None:
@@ -313,8 +313,8 @@ def _transpose_convolution(case_dir: Path) -> None:
     model, x_eval = _cuda_eval_pair(model, x)
     with _conv_dataflow(Dataflow.GatherScatter):
         expected = model(x_eval).cpu()
-        save_lattice_model_artifact(model, case_dir, sample_input=x)
-    _save_sparse_inputs(case_dir, '', x)
+        save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
+    _save_sparse_inputs(case_dir, "x", x)
     _save_sparse_expected(case_dir, expected)
 
 
@@ -328,8 +328,8 @@ def _generative_transpose_convolution(case_dir: Path) -> None:
         stride=(2, 1, 1),
     )
     expected = _generative_transpose_reference(model, x)
-    save_lattice_model_artifact(model, case_dir, sample_input=x)
-    _save_sparse_inputs(case_dir, '', x)
+    save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
+    _save_sparse_inputs(case_dir, "x", x)
     _save_sparse_expected(case_dir, expected)
 
 
@@ -356,9 +356,7 @@ def _generative_transpose_reference(
                 int(base[3]) * stride[2] + offset[2],
             )
             value = feat @ model.up.kernel[kernel_id]
-            rows[out_coord] = (
-                rows.get(out_coord, torch.zeros_like(value)) + value
-            )
+            rows[out_coord] = rows.get(out_coord, torch.zeros_like(value)) + value
     coords = torch.tensor(sorted(rows), dtype=torch.int32)
     feats = torch.stack([rows[tuple(coord.tolist())] for coord in coords])
     if model.up.bias is not None:
@@ -367,8 +365,7 @@ def _generative_transpose_reference(
         feats=torch.tanh(feats),
         coords=coords,
         stride=tuple(
-            int(tensor.stride[index]) // int(stride[index])
-            for index in range(3)
+            int(tensor.stride[index]) // int(stride[index]) for index in range(3)
         ),
         spatial_range=tensor.spatial_range,
     )
@@ -430,31 +427,31 @@ def _transpose_input() -> SparseTensor:
 
 def _save_sparse_inputs(
     case_dir: Path,
-    prefix: str,
+    name: str,
     tensor: SparseTensor,
     *,
     extra: dict[str, SparseTensor] | None = None,
 ) -> None:
     values = {
-        f'{prefix}coords': tensor.coords,
-        f'{prefix}features': tensor.feats,
-        f'{prefix}active': _active_rows(tensor),
+        f"{name}_coords": tensor.coords,
+        f"{name}_features": tensor.feats,
+        f"{name}_active": _active_rows(tensor),
     }
     for name, sparse in (extra or {}).items():
-        values[f'{name}_coords'] = sparse.coords
-        values[f'{name}_features'] = sparse.feats
-        values[f'{name}_active'] = _active_rows(sparse)
-    save_file(values, case_dir / 'inputs.safetensors')
+        values[f"{name}_coords"] = sparse.coords
+        values[f"{name}_features"] = sparse.feats
+        values[f"{name}_active"] = _active_rows(sparse)
+    save_file(values, case_dir / "inputs.safetensors")
 
 
 def _save_sparse_expected(case_dir: Path, expected: SparseTensor) -> None:
     save_file(
         {
-            'output.coords': expected.coords,
-            'output.features': expected.feats,
-            'output.active': _active_rows(expected),
+            "output.coords": expected.coords,
+            "output.features": expected.feats,
+            "output.active": _active_rows(expected),
         },
-        case_dir / 'expected.safetensors',
+        case_dir / "expected.safetensors",
     )
 
 
@@ -462,5 +459,5 @@ def _active_rows(tensor: SparseTensor) -> torch.Tensor:
     return torch.tensor([tensor.feats.shape[0]], dtype=torch.int32)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

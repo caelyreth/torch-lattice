@@ -29,9 +29,12 @@ convolutions when migrating existing models.
 Target convolution
 ------------------
 
-``TargetConv3d`` computes only at a caller-provided coordinate set. This is useful
-when the graph already owns the output support, for example after a branch, a
-proposal stage, or a known detector head layout.
+``Conv3d`` also computes only at a caller-provided coordinate set when invoked as
+``conv(x, coordinates=target)``. This is useful when the graph already owns the
+output support, for example after a branch, a proposal stage, or a known detector
+head layout. Target support is an execution input, not a distinct module family;
+the same weights and convolution attributes are used for generated and explicit
+support.
 
 Dataflows
 ---------

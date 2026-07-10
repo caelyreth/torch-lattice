@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, Union, Optional
+from typing import Dict, Optional, Tuple
 import torch
 
 import torch_lattice.backend
@@ -108,10 +108,9 @@ def build_kmap_implicit_GEMM_hashmap(
         nbsizes = torch.sum(results_t != -1, dim=1).to(torch.int)
         nbsizes_cpu = nbsizes.cpu().contiguous()
         mid_kernel = nbsizes_cpu.numel() // 2
-        kmap["IGEMM_center_only"] = (
-            int(nbsizes_cpu[mid_kernel]) == int(coords.shape[0])
-            and int(nbsizes_cpu.sum()) == int(coords.shape[0])
-        )
+        kmap["IGEMM_center_only"] = int(nbsizes_cpu[mid_kernel]) == int(
+            coords.shape[0]
+        ) and int(nbsizes_cpu.sum()) == int(coords.shape[0])
     else:
         kmap["IGEMM_center_only"] = False
 
@@ -213,17 +212,20 @@ def build_kmap_Fetch_on_Demand_hashmap(
     kmap["nbsizes_cpu"] = nbsizes_cpu
     if subm and nbsizes_cpu.numel() % 2 == 1:
         mid_kernel = nbsizes_cpu.numel() // 2
-        kmap["FOD_center_only"] = (
-            int(nbsizes_cpu[mid_kernel]) == int(nbmaps.size(0))
-            and int(nbsizes_cpu.sum()) == int(nbmaps.size(0))
-        )
+        kmap["FOD_center_only"] = int(nbsizes_cpu[mid_kernel]) == int(
+            nbmaps.size(0)
+        ) and int(nbsizes_cpu.sum()) == int(nbmaps.size(0))
     else:
         kmap["FOD_center_only"] = False
 
     if FOD_fusion:
         kernel_volume = nbsizes.size(0)
-        nbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
-        qnbaddrs = torch.zeros((kernel_volume + 1), dtype=torch.int, device=nbmaps.device)
+        nbaddrs = torch.zeros(
+            (kernel_volume + 1), dtype=torch.int, device=nbmaps.device
+        )
+        qnbaddrs = torch.zeros(
+            (kernel_volume + 1), dtype=torch.int, device=nbmaps.device
+        )
 
         # Derive quantified arrays
         torch_lattice.backend.exclusive_scan_quantified_wrapper(

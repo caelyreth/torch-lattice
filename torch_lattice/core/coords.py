@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from itertools import count
+from typing import Any
+
+import torch
+
+Triple = tuple[int, int, int]
+_MANAGER_IDS = count()
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinateMapKey:
+    """Identity of one coordinate support owned by a coordinate manager."""
+
+    manager_id: int
+    id: int
+    stride: Triple
+
+
+@dataclass(frozen=True, slots=True)
+class RelationKey:
+    """Identity of a cached sparse relation and its execution representation."""
+
+    source: CoordinateMapKey
+    target: CoordinateMapKey
+    operation: str
+    kernel_size: Triple
+    stride: Triple
+    padding: Triple
+    dilation: Triple
+    execution: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinateMap:
+    coords: torch.Tensor
+    spatial_range: tuple[int, int, int, int] | None
+    batch_counts: tuple[int, ...] | None
+
+
+class CoordinateManager:
+    """Own coordinate supports and relations for one sparse execution graph."""
+
+    def __init__(self) -> None:
+        self._manager_id = next(_MANAGER_IDS)
+        self._ids = count()
+        self._maps: dict[CoordinateMapKey, CoordinateMap] = {}
+        self._relations: dict[RelationKey, Any] = {}
+        self._forward_relations: dict[
+            tuple[
+                CoordinateMapKey, str, Triple, Triple, Triple, Triple, tuple[Any, ...]
+            ],
+            tuple[CoordinateMapKey, Any],
+        ] = {}
+        self._inverse_relations: dict[
+            tuple[
+                CoordinateMapKey, str, Triple, Triple, Triple, Triple, tuple[Any, ...]
+            ],
+            tuple[CoordinateMapKey, Any],
+        ] = {}
+        self._hashmaps: dict[
+            tuple[CoordinateMapKey, tuple[Any, ...]], tuple[Any, Any]
+        ] = {}
+
+    def insert(
+        self,
+        coords: torch.Tensor,
+        stride: Triple,
+        *,
+        spatial_range: tuple[int, int, int, int] | None,
+        batch_counts: tuple[int, ...] | None,
+    ) -> CoordinateMapKey:
+        key = CoordinateMapKey(self._manager_id, next(self._ids), stride)
+        self._maps[key] = CoordinateMap(coords, spatial_range, batch_counts)
+        return key
+
+    def get(self, key: CoordinateMapKey) -> CoordinateMap:
+        try:
+            return self._maps[key]
+        except KeyError as exc:
+            raise ValueError("coordinate key is not owned by this manager") from exc
+
+    def relation(self, key: RelationKey) -> Any | None:
+        return self._relations.get(key)
+
+    def set_relation(self, key: RelationKey, relation: Any) -> None:
+        self._relations[key] = relation
+
+    def forward_relation(
+        self,
+        source: CoordinateMapKey,
+        *,
+        operation: str,
+        kernel_size: Triple,
+        stride: Triple,
+        padding: Triple,
+        dilation: Triple,
+        execution: tuple[Any, ...],
+    ) -> tuple[CoordinateMapKey, Any] | None:
+        return self._forward_relations.get(
+            (
+                source,
+                operation,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+                execution,
+            )
+        )
+
+    def set_forward_relation(self, key: RelationKey, relation: Any) -> None:
+        self._forward_relations[
+            (
+                key.source,
+                key.operation,
+                key.kernel_size,
+                key.stride,
+                key.padding,
+                key.dilation,
+                key.execution,
+            )
+        ] = (key.target, relation)
+        self._relations[key] = relation
+
+    def set_inverse_relation(self, key: RelationKey, relation: Any) -> None:
+        inverse_key = (
+            key.target,
+            key.operation,
+            key.kernel_size,
+            key.stride,
+            key.padding,
+            key.dilation,
+            key.execution,
+        )
+        self._inverse_relations[inverse_key] = (key.source, relation)
+
+    def inverse_relation(
+        self,
+        source: CoordinateMapKey,
+        *,
+        operation: str,
+        kernel_size: Triple,
+        stride: Triple,
+        padding: Triple,
+        dilation: Triple,
+        execution: tuple[Any, ...],
+    ) -> tuple[CoordinateMapKey, Any] | None:
+        return self._inverse_relations.get(
+            (
+                source,
+                operation,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+                execution,
+            )
+        )
+
+    def hashmap(
+        self,
+        key: CoordinateMapKey,
+        execution: tuple[Any, ...],
+    ) -> tuple[Any, Any] | None:
+        return self._hashmaps.get((key, execution))
+
+    def set_hashmap(
+        self,
+        key: CoordinateMapKey,
+        execution: tuple[Any, ...],
+        value: tuple[Any, Any],
+    ) -> None:
+        self._hashmaps[(key, execution)] = value
+
+    def clear_relations(self) -> None:
+        self._relations.clear()
+        self._forward_relations.clear()
+        self._inverse_relations.clear()
+        self._hashmaps.clear()
+
+    @property
+    def relation_count(self) -> int:
+        return len(self._relations)
+
+    @property
+    def cached_relations(self) -> tuple[Any, ...]:
+        """Read-only snapshot of cached relation payloads for diagnostics."""
+
+        return tuple(self._relations.values())
+
+    @property
+    def cached_hashmaps(self) -> tuple[tuple[Any, Any], ...]:
+        """Read-only snapshot of native hash maps for diagnostics."""
+
+        return tuple(self._hashmaps.values())

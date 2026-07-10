@@ -1,0 +1,31 @@
+{
+  "input": {
+    "channels": 2,
+    "batch_size": 1,
+    "spatial_shape": [
+      2,
+      1,
+      1
+    ],
+    "rows_per_batch": [
+      2
+    ],
+    "stride": [
+      2,
+      1,
+      1
+    ]
+  },
+  "train_steps": 0,
+  "reference": "python_generative_transpose",
+  "ops": [
+    "generative_conv_transpose_stride2"
+  ],
+  "name": "0005_generative_transpose_47811358",
+  "family": "generative_transpose",
+  "seed": 1199641432,
+  "output_kind": "sparse",
+  "input_mode": "sparse_kwargs",
+  "rtol": 0.003,
+  "atol": 0.003
+}

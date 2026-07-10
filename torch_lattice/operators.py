@@ -7,8 +7,6 @@ import torch
 import torch_lattice.backend
 from torch_lattice.tensor import SparseTensor
 
-# from torch_scatter import scatter_sum
-
 SparseJoin = Literal["inner", "left", "right", "outer"]
 SparseBinaryOp = Literal["add", "sub", "mul", "maximum", "minimum"]
 
@@ -195,64 +193,60 @@ def scatter_sum(
 
 def generative_add(a: SparseTensor, b: SparseTensor) -> SparseTensor:
     if _same_coords(a, b):
-        out_tensor = sparse_add(a, b, join="inner")
-        out_tensor._caches = a._caches
-        return out_tensor
+        return sparse_add(a, b, join="inner")
 
-    input_a = a if a.F.size(0) >= b.F.size(0) else b
-    input_b = b if a.F.size(0) >= b.F.size(0) else a
+    input_a = a if a.feats.size(0) >= b.feats.size(0) else b
+    input_b = b if a.feats.size(0) >= b.feats.size(0) else a
     if (
-        input_a.C.device.type == "cuda"
-        and input_b.C.device.type == "cuda"
-        and input_a.C.dtype == torch.int32
-        and input_b.C.dtype == torch.int32
-        and input_a.F.device == input_a.C.device
-        and input_b.F.device == input_b.C.device
-        and input_a.F.size(1) == input_b.F.size(1)
+        input_a.coords.device.type == "cuda"
+        and input_b.coords.device.type == "cuda"
+        and input_a.coords.dtype == torch.int32
+        and input_b.coords.dtype == torch.int32
+        and input_a.feats.device == input_a.coords.device
+        and input_b.feats.device == input_b.coords.device
+        and input_a.feats.size(1) == input_b.feats.size(1)
     ):
         from torch_lattice.nn.functional.hash import sphash
         from torch_lattice.nn.functional.query import sphashquery
 
-        hashes_a = sphash(input_a.C)
-        hashes_b = sphash(input_b.C)
+        hashes_a = sphash(input_a.coords)
+        hashes_b = sphash(input_b.coords)
         matches = sphashquery(hashes_a, hashes_b).int()
         if hasattr(torch_lattice.backend, "generative_add_compress_cuda"):
-            out_features, out_coords = torch_lattice.backend.generative_add_compress_cuda(
-                input_a.F,
-                input_a.C,
-                input_b.F,
-                input_b.C,
-                matches,
+            out_features, out_coords = (
+                torch_lattice.backend.generative_add_compress_cuda(
+                    input_a.feats,
+                    input_a.coords,
+                    input_b.feats,
+                    input_b.coords,
+                    matches,
+                )
             )
-            out_tensor = SparseTensor(
-                out_features,
-                out_coords,
-                input_a.s,
-                spatial_range=input_a.spatial_range,
+            return input_a.with_coordinates(
+                feats=out_features,
+                coords=out_coords,
             )
-            out_tensor._caches = input_a._caches
-            return out_tensor
 
         matches = matches.long()
         overlap = matches >= 0
 
-        out_features_a = input_a.F.clone()
+        out_features_a = input_a.feats.clone()
         overlap_matches = matches[overlap]
-        out_features_a[overlap] = out_features_a[overlap] + input_b.F[overlap_matches]
+        out_features_a[overlap] = (
+            out_features_a[overlap] + input_b.feats[overlap_matches]
+        )
         matched_b = torch.zeros(
-            (input_b.F.size(0),), dtype=torch.bool, device=input_b.F.device
+            (input_b.feats.size(0),),
+            dtype=torch.bool,
+            device=input_b.feats.device,
         )
         matched_b[overlap_matches] = True
 
         input_b_only = ~matched_b
-        out_tensor = SparseTensor(
-            torch.cat([out_features_a, input_b.F[input_b_only]], dim=0),
-            torch.cat([input_a.C, input_b.C[input_b_only]], dim=0),
-            input_a.s,
-            spatial_range=input_a.spatial_range,
+        return input_a.with_coordinates(
+            feats=torch.cat([out_features_a, input_b.feats[input_b_only]], dim=0),
+            coords=torch.cat([input_a.coords, input_b.coords[input_b_only]], dim=0),
         )
-        out_tensor._caches = input_a._caches
-        return out_tensor
 
     return sparse_add(a, b, join="outer")
 
@@ -340,6 +334,8 @@ def _gather_aligned(
     *,
     fill: float = 0.0,
 ) -> torch.Tensor:
+    if features.shape[0] == 0:
+        return features.new_full((rows.shape[0], features.shape[1]), float(fill))
     clipped = rows.clamp_min(0)
     gathered = features.index_select(0, clipped)
     valid = rows >= 0
@@ -370,14 +366,20 @@ def _apply_binary(
 
 
 def _same_coords(lhs: SparseTensor, rhs: SparseTensor) -> bool:
+    if lhs.coord_manager is rhs.coord_manager and lhs.coord_key == rhs.coord_key:
+        return True
     return (
-        lhs.C.shape == rhs.C.shape
-        and lhs.C.stride() == rhs.C.stride()
-        and lhs.C.dtype == rhs.C.dtype
-        and lhs.C.device == rhs.C.device
-        and lhs.s == rhs.s
+        lhs.coords.shape == rhs.coords.shape
+        and lhs.coords.stride() == rhs.coords.stride()
+        and lhs.coords.dtype == rhs.coords.dtype
+        and lhs.coords.device == rhs.coords.device
+        and lhs.stride == rhs.stride
         and lhs.spatial_range == rhs.spatial_range
-        and (lhs.C.data_ptr() == rhs.C.data_ptr() or torch.equal(lhs.C, rhs.C))
+        and lhs.batch_counts == rhs.batch_counts
+        and (
+            lhs.coords.data_ptr() == rhs.coords.data_ptr()
+            or torch.equal(lhs.coords, rhs.coords)
+        )
     )
 
 
@@ -388,10 +390,20 @@ def _require_compatible(lhs: SparseTensor, rhs: SparseTensor) -> None:
         raise ValueError("sparse tensor coordinate dtypes must match.")
     if lhs.coords.device != rhs.coords.device:
         raise ValueError("sparse tensor coordinate devices must match.")
+    if lhs.feats.device != rhs.feats.device:
+        raise ValueError("sparse tensor feature devices must match.")
+    if lhs.spatial_range != rhs.spatial_range:
+        raise ValueError("sparse tensor spatial ranges must match.")
+    if (
+        lhs.batch_counts is not None
+        and rhs.batch_counts is not None
+        and len(lhs.batch_counts) != len(rhs.batch_counts)
+    ):
+        raise ValueError("sparse tensor batch cardinality must match.")
 
 
 def _replace_sparse(source: SparseTensor, feats: torch.Tensor) -> SparseTensor:
-    return _new_sparse(source, coords=source.coords, feats=feats)
+    return source.replace(feats=feats)
 
 
 def _new_sparse(
@@ -400,14 +412,9 @@ def _new_sparse(
     coords: torch.Tensor,
     feats: torch.Tensor,
 ) -> SparseTensor:
-    output = SparseTensor(
-        coords=coords,
-        feats=feats,
-        stride=source.stride,
-        spatial_range=source.spatial_range,
-    )
-    output._caches = source._caches
-    return output
+    if coords is source.coords:
+        return source.replace(feats=feats)
+    return source.with_coordinates(feats=feats, coords=coords)
 
 
 def _validate_join(join: str) -> None:

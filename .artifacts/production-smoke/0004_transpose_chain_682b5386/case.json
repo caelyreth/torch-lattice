@@ -1,0 +1,31 @@
+{
+  "input": {
+    "channels": 3,
+    "batch_size": 1,
+    "spatial_shape": [
+      6,
+      1,
+      1
+    ],
+    "rows_per_batch": [
+      6
+    ],
+    "stride": [
+      1,
+      1,
+      1
+    ]
+  },
+  "train_steps": 1,
+  "ops": [
+    "conv_stride2",
+    "conv_transpose_stride2"
+  ],
+  "name": "0004_transpose_chain_682b5386",
+  "family": "transpose_chain",
+  "seed": 1747669894,
+  "output_kind": "sparse",
+  "input_mode": "sparse_kwargs",
+  "rtol": 0.003,
+  "atol": 0.003
+}

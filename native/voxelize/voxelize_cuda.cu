@@ -1,0 +1,204 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <torch/torch.h>
+#include <c10/cuda/CUDAException.h>
+
+#include <cmath>
+#include <cuda_fp16.h>
+
+template <typename scalar_t>
+__device__ inline void gpu_atomic_add(scalar_t *address, scalar_t val) {
+  atomicAdd(address, val);
+}
+
+template <>
+__device__ inline void gpu_atomic_add<c10::Half>(c10::Half *address,
+                                                 c10::Half val) {
+  atomicAdd(reinterpret_cast<__half *>(address),
+            *reinterpret_cast<__half *>(&val));
+}
+
+// to_dense: feats (N x C), coords (N x 4), output (B x H x W x D x C)
+// coords: batch, x, y, z
+template <typename scalar_t>
+__global__ void to_dense_forward_kernel(int N, int c, const scalar_t *__restrict__ feats, const int *__restrict__ coords, const int *__restrict__ range, scalar_t *__restrict__ out)
+{
+  int index = blockDim.x * blockIdx.x + threadIdx.x;
+  int i = index / c;
+  int j = index % c;
+  if (i < N)
+  {
+    const int *cur_coords = coords + 4 * i;
+    int pos = cur_coords[0] * range[1] * range[2] * range[3] + cur_coords[1] * range[2] * range[3] + cur_coords[2] * range[3] + cur_coords[3];
+    out[pos * c + j] = feats[index];
+  }
+}
+
+// to_dense: top_grad (B x H x W x D x C), coords (N x 4), bottom_grad (N x C)
+template <typename scalar_t>
+__global__ void to_dense_backward_kernel(int N, int c, const scalar_t *__restrict__ top_grad, const int *__restrict__ coords, const int *__restrict__ range, scalar_t *__restrict__ bottom_grad)
+{
+  int index = blockDim.x * blockIdx.x + threadIdx.x;
+  int i = index / c;
+  int j = index % c;
+  if (i < N)
+  {
+    const int *cur_coords = coords + 4 * i;
+    int pos = cur_coords[0] * range[1] * range[2] * range[3] + cur_coords[1] * range[2] * range[3] + cur_coords[2] * range[3] + cur_coords[3];
+    bottom_grad[index] = top_grad[pos * c + j];
+  }
+}
+
+template <typename scalar_t>
+__global__ void voxelize_forward_kernel(int N, int c, int s,
+                                        const scalar_t *__restrict__ data,
+                                        const int *__restrict__ idx,
+                                        const int *__restrict__ counts,
+                                        scalar_t *__restrict__ out)
+{
+  int index = blockDim.x * blockIdx.x + threadIdx.x;
+  int i = index / c;
+  int j = index % c;
+  if (i < N)
+  {
+    int pos = idx[i];
+    if (pos < 0 || pos >= s || counts[pos] == 0)
+      return;
+    gpu_atomic_add(&out[pos * c + j],
+                   static_cast<scalar_t>(data[i * c + j] / float(counts[pos])));
+  }
+}
+
+template <typename scalar_t>
+__global__ void voxelize_backward_kernel(int N, int c, int s,
+                                         const scalar_t *__restrict__ top_grad,
+                                         const int *__restrict__ idx,
+                                         const int *__restrict__ counts,
+                                         scalar_t *__restrict__ bottom_grad)
+{
+  int index = blockDim.x * blockIdx.x + threadIdx.x;
+  int i = index / c;
+  int j = index % c;
+  if (i < N)
+  {
+    int pos = idx[i];
+    if (pos < 0 || pos >= s || counts[pos] == 0)
+      return;
+    gpu_atomic_add(&bottom_grad[i * c + j],
+                   static_cast<scalar_t>(top_grad[pos * c + j] /
+                                         float(counts[pos])));
+  }
+}
+
+at::Tensor voxelize_forward_cuda(const at::Tensor inputs, const at::Tensor idx,
+                                 const at::Tensor counts)
+{
+  TORCH_CHECK(inputs.is_cuda() && idx.is_cuda() && counts.is_cuda(),
+              "voxelize inputs must be CUDA tensors");
+  TORCH_CHECK(inputs.dim() == 2 && idx.dim() == 1 && counts.dim() == 1,
+              "voxelize expects features (N,C), indices (N), and counts (V)");
+  TORCH_CHECK(inputs.size(0) == idx.size(0),
+              "features and indices must have the same row count");
+  TORCH_CHECK(idx.scalar_type() == at::kInt && counts.scalar_type() == at::kInt,
+              "voxelize indices and counts must use int32 dtype");
+  TORCH_CHECK(inputs.is_contiguous() && idx.is_contiguous() && counts.is_contiguous(),
+              "voxelize inputs must be contiguous");
+  int N = inputs.size(0);
+  int c = inputs.size(1);
+  int N1 = counts.size(0);
+
+  at::Tensor out =
+      torch::zeros({N1, c}, at::device(idx.device()).dtype(inputs.dtype()));
+
+  if (N == 0 || c == 0) return out;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      inputs.scalar_type(), "voxelize_forward_cuda", ([&]
+                                               { voxelize_forward_kernel<scalar_t><<<(N * c + 255) / 256, 256>>>(
+                                                     N, c, N1, inputs.data_ptr<scalar_t>(), idx.data_ptr<int>(),
+                                                     counts.data_ptr<int>(), out.data_ptr<scalar_t>()); }));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return out;
+}
+
+at::Tensor voxelize_backward_cuda(const at::Tensor top_grad,
+                                  const at::Tensor idx, const at::Tensor counts,
+                                  const int N)
+{
+  TORCH_CHECK(top_grad.is_cuda() && idx.is_cuda() && counts.is_cuda(),
+              "voxelize backward inputs must be CUDA tensors");
+  TORCH_CHECK(top_grad.dim() == 2 && idx.dim() == 1 && counts.dim() == 1,
+              "voxelize backward expects gradients (V,C), indices (N), and counts (V)");
+  TORCH_CHECK(idx.scalar_type() == at::kInt && counts.scalar_type() == at::kInt,
+              "voxelize indices and counts must use int32 dtype");
+  TORCH_CHECK(N >= 0 && idx.size(0) == N,
+              "requested input rows must match indices");
+  TORCH_CHECK(top_grad.is_contiguous() && idx.is_contiguous() && counts.is_contiguous(),
+              "voxelize backward inputs must be contiguous");
+  int c = top_grad.size(1);
+  int N1 = counts.size(0);
+
+  at::Tensor bottom_grad =
+      torch::zeros({N, c}, at::device(idx.device()).dtype(top_grad.dtype()));
+
+  if (N == 0 || c == 0) return bottom_grad;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      top_grad.scalar_type(), "voxelize_backward_cuda", ([&]
+                                                  { voxelize_backward_kernel<scalar_t><<<(N * c + 255) / 256, 256>>>(
+                                                        N, c, N1, top_grad.data_ptr<scalar_t>(), idx.data_ptr<int>(),
+                                                        counts.data_ptr<int>(), bottom_grad.data_ptr<scalar_t>()); }));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return bottom_grad;
+}
+
+void to_dense_forward_cuda(const at::Tensor inputs, const at::Tensor idx,
+                           const at::Tensor range, at::Tensor outputs)
+{
+  TORCH_CHECK(inputs.is_cuda() && idx.is_cuda() && range.is_cuda() && outputs.is_cuda(),
+              "dense conversion tensors must be CUDA tensors");
+  TORCH_CHECK(inputs.dim() == 2 && idx.dim() == 2 && idx.size(1) == 4,
+              "dense conversion expects features (N,C) and coordinates (N,4)");
+  TORCH_CHECK(inputs.size(0) == idx.size(0),
+              "features and coordinates must have the same row count");
+  TORCH_CHECK(idx.scalar_type() == at::kInt && range.scalar_type() == at::kInt,
+              "coordinates and range must use int32 dtype");
+  TORCH_CHECK(inputs.is_contiguous() && idx.is_contiguous() && range.is_contiguous() && outputs.is_contiguous(),
+              "dense conversion tensors must be contiguous");
+  int N = inputs.size(0);
+  int c = inputs.size(1);
+
+  if (N == 0 || c == 0) return;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      inputs.scalar_type(), "to_dense_forward_cuda", ([&]
+                                               { to_dense_forward_kernel<scalar_t><<<(N * c + 255) / 256, 256>>>(
+                                                     N, c, inputs.data_ptr<scalar_t>(), idx.data_ptr<int>(),
+                                                     range.data_ptr<int>(), outputs.data_ptr<scalar_t>()); }));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+void to_dense_backward_cuda(const at::Tensor top_grad,
+                            const at::Tensor idx, const at::Tensor range,
+                            const at::Tensor bottom_grad)
+{
+  TORCH_CHECK(top_grad.is_cuda() && idx.is_cuda() && range.is_cuda() && bottom_grad.is_cuda(),
+              "dense backward tensors must be CUDA tensors");
+  TORCH_CHECK(bottom_grad.dim() == 2 && idx.dim() == 2 && idx.size(1) == 4,
+              "dense backward expects gradients (N,C) and coordinates (N,4)");
+  TORCH_CHECK(bottom_grad.size(0) == idx.size(0),
+              "gradients and coordinates must have the same row count");
+  TORCH_CHECK(idx.scalar_type() == at::kInt && range.scalar_type() == at::kInt,
+              "coordinates and range must use int32 dtype");
+  TORCH_CHECK(top_grad.is_contiguous() && idx.is_contiguous() && range.is_contiguous() && bottom_grad.is_contiguous(),
+              "dense backward tensors must be contiguous");
+  int N = bottom_grad.size(0);
+  int c = bottom_grad.size(1);
+
+  if (N == 0 || c == 0) return;
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      top_grad.scalar_type(), "to_dense_backward_cuda", ([&]
+                                                  { to_dense_backward_kernel<scalar_t><<<(N * c + 255) / 256, 256>>>(
+                                                        N, c, top_grad.data_ptr<scalar_t>(), idx.data_ptr<int>(),
+                                                        range.data_ptr<int>(), bottom_grad.data_ptr<scalar_t>()); }));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
