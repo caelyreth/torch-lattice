@@ -24,12 +24,15 @@ from .pooling import (
     global_sum_pool,
     max_pool3d,
     pool3d,
+    pool_transpose3d,
     sum_pool3d,
 )
 from .query import convert_transposed_out_in_map, sphashquery
 from .relation import (
     build_pool_output_coords,
     build_target_out_in_map,
+    build_target_transposed_out_in_map,
+    build_transposed_output_coords,
     gather_scatter_kmap_from_out_in_map,
 )
 from .voxelize import spvoxelize, voxelize
@@ -41,6 +44,8 @@ __all__ = [
     "build_kernel_map",
     "build_pool_output_coords",
     "build_target_out_in_map",
+    "build_target_transposed_out_in_map",
+    "build_transposed_output_coords",
     "calc_ti_weights",
     "conv3d",
     "conv_config",
@@ -56,6 +61,7 @@ __all__ = [
     "max_pool3d",
     "normalized_conv3d",
     "pool3d",
+    "pool_transpose3d",
     "relu",
     "set_conv_mode",
     "silu",

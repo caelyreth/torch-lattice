@@ -23,6 +23,7 @@ from .pooling import (
     GlobalSumPool,
     MaxPool3d,
     Pool3d,
+    PoolTranspose3d,
     SumPool3d,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "NormalizedGenerativeConvTranspose3d",
     "NormalizedSubmConv3d",
     "Pool3d",
+    "PoolTranspose3d",
     "RMSNorm",
     "ReLU",
     "SiLU",

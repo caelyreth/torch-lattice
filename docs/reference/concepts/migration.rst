@@ -93,6 +93,12 @@ semantics. Do not mechanically replace every old ``torchsparse.nn.Conv3d`` with
      - ``Conv3d(...)(x, coordinates=target)``
      - The target support is part of the caller's graph state, while parameter
        ownership remains in the ordinary convolution module.
+   * - ``MinkowskiPoolingTranspose(..., expand_coordinates=True)``
+     - ``PoolTranspose3d(...)(x)``
+     - Generate and deduplicate fine support from the transposed kernel relation.
+   * - ``MinkowskiPoolingTranspose(...)(x, coordinates=target)``
+     - ``PoolTranspose3d(...)(x, target)``
+     - Preserve target support and average all coarse contributors per row.
 
 A useful check while porting is to compare coordinate counts before and after a
 layer. If the original layer was intended to keep exactly the same coordinate set,

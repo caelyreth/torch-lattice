@@ -15,6 +15,7 @@ __all__ = [
     "GlobalSumPool",
     "MaxPool3d",
     "Pool3d",
+    "PoolTranspose3d",
     "SumPool3d",
 ]
 
@@ -79,6 +80,31 @@ class AvgPool3d(Pool3d):
             stride=stride,
             padding=padding,
             dilation=dilation,
+        )
+
+
+class PoolTranspose3d(nn.Module):
+    """Average-pooling transpose onto generated or explicit target support."""
+
+    def __init__(self, kernel_size=2, stride=2, padding=0, dilation=1) -> None:
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+
+    def forward(
+        self,
+        input: SparseTensor,
+        coordinates: SparseTensor | None = None,
+    ) -> SparseTensor:
+        return F.pool_transpose3d(
+            input,
+            coordinates,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
         )
 
 

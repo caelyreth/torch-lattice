@@ -12,8 +12,38 @@ Triple = tuple[int, int, int]
 __all__ = [
     "build_pool_output_coords",
     "build_target_out_in_map",
+    "build_target_transposed_out_in_map",
+    "build_transposed_output_coords",
     "gather_scatter_kmap_from_out_in_map",
 ]
+
+
+def build_transposed_output_coords(
+    coords: torch.Tensor,
+    *,
+    kernel_size,
+    stride=1,
+    padding=0,
+    dilation=1,
+) -> torch.Tensor:
+    """Generate unique support for transposed convolution geometry."""
+    _validate_coords(coords)
+    if coords.shape[0] == 0:
+        return coords.clone()
+    size = _triple(kernel_size)
+    step = _triple(stride)
+    pad = _triple(padding)
+    spacing = _triple(dilation)
+    device = coords.device
+    offsets = _kernel_offsets(size, device=device)
+    spatial = (
+        coords[:, None, 1:].to(torch.int64) * _tensor(step, device)[None, None, :]
+        + offsets[None, :, :] * _tensor(spacing, device)[None, None, :]
+        - _tensor(pad, device)[None, None, :]
+    )
+    batch = coords[:, None, :1].to(torch.int64).expand(-1, offsets.shape[0], -1)
+    candidates = torch.cat((batch, spatial), dim=2).reshape(-1, 4)
+    return torch.unique(candidates.to(coords.dtype), dim=0)
 
 
 def build_pool_output_coords(
@@ -119,6 +149,60 @@ def build_target_out_in_map(
         .reshape(target_rows, kernel_volume)
         .to(torch.int64)
     )
+
+
+def build_target_transposed_out_in_map(
+    input_coords: torch.Tensor,
+    target_coords: torch.Tensor,
+    *,
+    kernel_size,
+    stride=1,
+    padding=0,
+    dilation=1,
+) -> torch.Tensor:
+    """Build target-to-input rows for transposed convolution geometry."""
+    _validate_coords(input_coords)
+    _validate_coords(target_coords)
+    if input_coords.device != target_coords.device:
+        raise ValueError("input and target coordinates must use the same device")
+    size = _triple(kernel_size)
+    step = _triple(stride)
+    pad = _triple(padding)
+    spacing = _triple(dilation)
+    target_rows = int(target_coords.shape[0])
+    kernel_volume = _volume(size)
+    if target_rows == 0 or input_coords.shape[0] == 0:
+        return torch.full(
+            (target_rows, kernel_volume),
+            -1,
+            dtype=torch.int64,
+            device=target_coords.device,
+        )
+
+    device = target_coords.device
+    offsets = _kernel_offsets(size, device=device)
+    numerator = (
+        target_coords[:, None, 1:].to(torch.int64)
+        + _tensor(pad, device)[None, None, :]
+        - offsets[None, :, :] * _tensor(spacing, device)[None, None, :]
+    )
+    step_tensor = _tensor(step, device)[None, None, :]
+    valid = torch.all(torch.remainder(numerator, step_tensor) == 0, dim=2)
+    source_spatial = torch.div(numerator, step_tensor, rounding_mode="floor")
+    batch = target_coords[:, None, :1].to(torch.int64).expand(-1, kernel_volume, -1)
+    candidates = _int32_coords(
+        torch.cat((batch, source_spatial), dim=2),
+        name="target transposed candidates",
+    )
+
+    from torch_lattice.nn.functional.hash import sphash
+    from torch_lattice.nn.functional.query import sphashquery
+
+    references = _int32_coords(input_coords, name="input coordinates")
+    rows = sphashquery(sphash(candidates.reshape(-1, 4)), sphash(references)).reshape(
+        target_rows, kernel_volume
+    )
+    return torch.where(valid, rows, rows.new_full((), -1)).to(torch.int64)
 
 
 def gather_scatter_kmap_from_out_in_map(

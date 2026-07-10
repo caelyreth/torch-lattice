@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 import torch
-
 import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
@@ -28,6 +27,7 @@ class ModuleFixture:
 class ModulePrepared:
     x: SparseTensor
     module: torch.nn.Module
+    target: SparseTensor | None = None
 
 
 class SparseClassifier(torch.nn.Module):
@@ -76,11 +76,18 @@ def cases(
     device: torch.device,
 ) -> tuple[BenchmarkCase, ...]:
     params = params_matrix(
-        preset, n_values=n_values, channels=channels, layouts=layouts, dtype=dtype
+        preset,
+        n_values=n_values,
+        channels=channels,
+        layouts=layouts,
+        dtype=dtype,
     )
     return (
         _case(
-            "sparse_classifier_module", params, device, lambda c: SparseClassifier(c)
+            "sparse_classifier_module",
+            params,
+            device,
+            lambda c: SparseClassifier(c),
         ),
         _case(
             "sparse_residual_add_module",
@@ -95,6 +102,12 @@ def cases(
             lambda c: SparseResidual(c, merge="cat"),
         ),
         _case("activation_chain_module", params, device, _activation_chain),
+        _pool_transpose_case(
+            "pool_transpose_generated_module", params, device, target=False
+        ),
+        _pool_transpose_case(
+            "pool_transpose_target_module", params, device, target=True
+        ),
     )
 
 
@@ -126,7 +139,40 @@ def _prepare(fixture: ModuleFixture) -> ModulePrepared:
 
 def _run(prepared: ModulePrepared):
     with torch.no_grad():
-        return prepared.module(prepared.x)
+        if prepared.target is None:
+            return prepared.module(prepared.x)
+        return prepared.module(prepared.x, prepared.target)
+
+
+def _pool_transpose_case(
+    name: str,
+    params,
+    device: torch.device,
+    *,
+    target: bool,
+) -> BenchmarkCase:
+    return BenchmarkCase(
+        name=name,
+        group="nn",
+        params=params,
+        setup=lambda p: _setup_pool_transpose(dict(p), device, target=target),
+        prepare=lambda fixture: fixture,
+        run=_run,
+        units=("elements",),
+    )
+
+
+def _setup_pool_transpose(
+    params: dict[str, object],
+    device: torch.device,
+    *,
+    target: bool,
+) -> ModulePrepared:
+    base = sparse_fixture(params, device=device)
+    fine = fresh_sparse(base.tensor)
+    coarse = spnn.AvgPool3d(kernel_size=2, stride=2)(fine)
+    module = spnn.PoolTranspose3d(kernel_size=2, stride=2).to(device).eval()
+    return ModulePrepared(coarse, module, fine if target else None)
 
 
 def _activation_chain(channels: int) -> torch.nn.Module:

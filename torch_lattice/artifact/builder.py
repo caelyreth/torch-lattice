@@ -435,6 +435,29 @@ class TorchLatticeArtifactBuilder:
         )
         return ArtifactValue(out, "sparse_tensor", value.channels)
 
+    @module_lowering(spnn.PoolTranspose3d, arity=(1, 2))
+    def pool_transpose3d(
+        self,
+        name: str,
+        module: spnn.PoolTranspose3d,
+        input: ArtifactValue,
+        target: ArtifactValue | None = None,
+    ) -> ArtifactValue:
+        self._require_sparse(input, module)
+        if target is not None:
+            self._require_sparse(target, module)
+        out = self._builder.pool_transpose3d(
+            input=input.value,
+            target=None if target is None else target.value,
+            kernel_size=_triple(module.kernel_size),
+            stride=_triple(module.stride),
+            padding=_triple(module.padding),
+            dilation=_triple(module.dilation),
+            result_type=SparseTensorType(dtype=self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ArtifactValue(out, "sparse_tensor", input.channels)
+
     def voxelize(
         self,
         name: str,

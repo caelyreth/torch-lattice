@@ -7,7 +7,12 @@ import torch
 from torch_lattice import SparseTensor
 from torch_lattice.utils import make_ntuple
 
-from .relation import build_pool_output_coords, build_target_out_in_map
+from .relation import (
+    build_pool_output_coords,
+    build_target_out_in_map,
+    build_target_transposed_out_in_map,
+    build_transposed_output_coords,
+)
 
 __all__ = [
     "avg_pool3d",
@@ -17,6 +22,7 @@ __all__ = [
     "global_max_pool",
     "max_pool3d",
     "pool3d",
+    "pool_transpose3d",
     "sum_pool3d",
 ]
 
@@ -82,6 +88,54 @@ def max_pool3d(inputs: SparseTensor, **kwargs) -> SparseTensor:
 
 def avg_pool3d(inputs: SparseTensor, **kwargs) -> SparseTensor:
     return pool3d(inputs, mode="avg", **kwargs)
+
+
+def pool_transpose3d(
+    inputs: SparseTensor,
+    target: SparseTensor | None = None,
+    *,
+    kernel_size=2,
+    stride=2,
+    padding=0,
+    dilation=1,
+) -> SparseTensor:
+    """Average coarse rows onto generated or explicit fine support."""
+    size = make_ntuple(kernel_size, ndim=3)
+    step = make_ntuple(stride, ndim=3)
+    pad = make_ntuple(padding, ndim=3)
+    spacing = make_ntuple(dilation, ndim=3)
+    if any(inputs.stride[index] % step[index] for index in range(3)):
+        raise ValueError("transpose stride must divide the input sparse stride")
+    output_stride = tuple(inputs.stride[index] // step[index] for index in range(3))
+    if target is None:
+        target_coords = build_transposed_output_coords(
+            inputs.coords,
+            kernel_size=size,
+            stride=step,
+            padding=pad,
+            dilation=spacing,
+        )
+        target = inputs.with_coordinates(
+            feats=inputs.feats.new_empty(
+                (target_coords.shape[0], inputs.feats.shape[1])
+            ),
+            coords=target_coords,
+            stride=output_stride,
+        )
+    elif target.stride != output_stride:
+        raise ValueError(
+            f"target stride {target.stride} does not match transposed output "
+            f"stride {output_stride}"
+        )
+    relation = build_target_transposed_out_in_map(
+        inputs.coords,
+        target.coords,
+        kernel_size=size,
+        stride=step,
+        padding=pad,
+        dilation=spacing,
+    )
+    return target.replace(feats=_pool_features(inputs.feats, relation, "avg"))
 
 
 def global_pool(

@@ -37,6 +37,7 @@ def main() -> None:
         "transpose_convolution",
         "generative_transpose_convolution",
         "normalized_convolution",
+        "pool_transpose",
     ]
     _sparse_classifier(ROOT / "sparse_classifier")
     _target_branch(ROOT / "target_branch")
@@ -46,6 +47,7 @@ def main() -> None:
     _transpose_convolution(ROOT / "transpose_convolution")
     _generative_transpose_convolution(ROOT / "generative_transpose_convolution")
     _normalized_convolution(ROOT / "normalized_convolution")
+    _pool_transpose(ROOT / "pool_transpose")
     (ROOT / "manifest.json").write_text(
         json.dumps({"cases": cases}, indent=2),
         encoding="utf-8",
@@ -171,12 +173,27 @@ class GenerativeTransposeConvolution(nn.Module):
 class NormalizedConvolution(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.conv = spnn.NormalizedSubmConv3d(
-            2, 3, kernel_size=(3, 1, 1), bias=True
-        )
+        self.conv = spnn.NormalizedSubmConv3d(2, 3, kernel_size=(3, 1, 1), bias=True)
 
     def forward(self, x: SparseTensor) -> SparseTensor:
         return self.conv(x)
+
+
+class PoolTranspose(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.up = spnn.PoolTranspose3d(
+            kernel_size=(3, 1, 1),
+            stride=(2, 1, 1),
+            padding=(1, 0, 0),
+        )
+
+    def forward(
+        self,
+        source: SparseTensor,
+        target: SparseTensor,
+    ) -> SparseTensor:
+        return self.up(source, target)
 
 
 def _sparse_classifier(case_dir: Path) -> None:
@@ -365,6 +382,36 @@ def _normalized_convolution(case_dir: Path) -> None:
         expected = model(x_eval).cpu()
     save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
     _save_sparse_inputs(case_dir, "x", x)
+    _save_sparse_expected(case_dir, expected)
+
+
+def _pool_transpose(case_dir: Path) -> None:
+    case_dir.mkdir()
+    model = PoolTranspose().eval()
+    source = SparseTensor(
+        feats=torch.tensor([[0.25, -0.5], [0.75, 0.4]], dtype=torch.float32),
+        coords=torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0]],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 2, 1, 1),
+        stride=(2, 1, 1),
+    )
+    target = SparseTensor(
+        feats=torch.zeros((4, 1), dtype=torch.float32),
+        coords=torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0], [0, 4, 0, 0]],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 5, 1, 1),
+    )
+    expected = model(source, target)
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32", create_default_input=False)
+    source_value = builder.sparse_argument("source", channels=2, stride=(2, 1, 1))
+    target_value = builder.sparse_argument("target", channels=1)
+    lower_fx_artifact(builder, model, inputs=(source_value, target_value))
+    builder.save(case_dir)
+    _save_sparse_inputs(case_dir, "source", source, extra={"target": target})
     _save_sparse_expected(case_dir, expected)
 
 
