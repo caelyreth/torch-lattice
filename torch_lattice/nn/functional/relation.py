@@ -4,6 +4,7 @@ from itertools import product
 
 import torch
 
+from torch_lattice.nn.functional.conv.kmap.layout import set_neighbor_pairs
 from torch_lattice.utils import make_ntuple
 
 Triple = tuple[int, int, int]
@@ -136,8 +137,14 @@ def gather_scatter_kmap_from_out_in_map(
     else:
         flat = transposed.reshape(-1)
         nbmaps[:, 0] = flat[nbmaps[:, 0] * transposed.size(1) + nbmaps[:, 1]]
-    nbmaps = nbmaps.contiguous()
     output_size = int(relation.shape[0])
+    kmap = {
+        "out_in_map": relation,
+        "nbsizes": nbsizes,
+        "nbsizes_cpu": nbsizes.cpu().contiguous(),
+        "sizes": (int(input_size), output_size),
+    }
+    nbmaps = set_neighbor_pairs(kmap, nbmaps)
     input_mask = torch.empty(0, dtype=torch.int32, device=relation.device)
     output_mask = torch.empty(0, dtype=torch.int32, device=relation.device)
     if relation.device.type == "cuda" and nbmaps.numel() > 0:
@@ -146,18 +153,12 @@ def gather_scatter_kmap_from_out_in_map(
         input_mask, output_mask = torch_lattice.backend.build_mask_from_kmap(
             int(input_size),
             output_size,
-            nbmaps.int(),
+            nbmaps,
             nbsizes.int(),
         )
-    return {
-        "out_in_map": relation,
-        "nbmaps": nbmaps,
-        "nbsizes": nbsizes,
-        "nbsizes_cpu": nbsizes.cpu().contiguous(),
-        "sizes": (int(input_size), output_size),
-        "input_mask": input_mask,
-        "output_mask": output_mask,
-    }
+    kmap["input_mask"] = input_mask
+    kmap["output_mask"] = output_mask
+    return kmap
 
 
 def _kernel_offsets(kernel_size: Triple, *, device: torch.device) -> torch.Tensor:

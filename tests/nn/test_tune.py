@@ -733,7 +733,8 @@ def test_fetch_on_demand_center_only_uses_matmul_fast_path(monkeypatch):
     nbsizes_cpu[mid_kernel] = points
     ids = torch.arange(points, device="cuda", dtype=torch.int32)
     kmap = {
-        "nbmaps": torch.stack([ids, ids]),
+        "neighbor_pairs": torch.stack([ids, ids], dim=1).contiguous(),
+        "fod_neighbor_map": torch.stack([ids, ids]).contiguous(),
         "nbsizes": nbsizes_cpu.to("cuda"),
         "nbsizes_cpu": nbsizes_cpu,
         "FOD_center_only": True,
@@ -778,7 +779,8 @@ def test_fetch_on_demand_center_only_backward_uses_matmul_fast_path(monkeypatch)
     nbsizes_cpu[mid_kernel] = points
     ids = torch.arange(points, device="cuda", dtype=torch.int32)
     kmap = {
-        "nbmaps": torch.stack([ids, ids]),
+        "neighbor_pairs": torch.stack([ids, ids], dim=1).contiguous(),
+        "fod_neighbor_map": torch.stack([ids, ids]).contiguous(),
         "nbsizes": nbsizes_cpu.to("cuda"),
         "nbsizes_cpu": nbsizes_cpu,
         "FOD_center_only": True,

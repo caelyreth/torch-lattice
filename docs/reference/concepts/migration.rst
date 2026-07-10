@@ -194,6 +194,28 @@ When porting tuned models or scripts:
 * run migration/conformance checks after changing kernel-map or convolution
   configuration.
 
+Fetch-on-Demand training correctness
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Original TorchSparse used a plane-major ``(2, M)`` neighbor map for
+Fetch-on-Demand forward, then passed that same storage to the pair-major
+Gather-Scatter backward fallback. The fallback interpreted the storage as
+``(M, 2)``, so Fetch-on-Demand training could produce incorrect and
+nondeterministic input and weight gradients even though execution completed.
+
+Torch Lattice separates the canonical pair-major relation from the
+Fetch-on-Demand execution view. Both layouts are produced together when the
+kernel map is built: Fetch-on-Demand forward consumes its optimized view, while
+the backward fallback consumes the canonical relation expected by
+Gather-Scatter. Gradient parity is checked against Gather-Scatter for both map
+builders, fused and unfused execution, support-preserving and support-generating
+convolutions, and supported floating-point dtypes.
+
+No model-source change is required. Forward values can still differ slightly
+between dataflows because CUDA accumulation order is different; compare them
+with dtype-appropriate floating-point tolerances rather than requiring bitwise
+identity.
+
 Validation workflow
 -------------------
 

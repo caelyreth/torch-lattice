@@ -2,6 +2,10 @@ from typing import Dict, Optional, Tuple
 import torch
 
 import torch_lattice.backend
+from torch_lattice.nn.functional.conv.kmap.layout import (
+    set_fod_neighbor_maps,
+    set_neighbor_pairs,
+)
 from torch_lattice.utils import make_tensor
 
 
@@ -152,15 +156,14 @@ def build_kmap_Gather_Scatter_hashmap(
     nbmaps = torch.nonzero(results != -1)
     nbmaps[:, 0] = results.view(-1)[nbmaps[:, 0] * results.size(1) + nbmaps[:, 1]]
     # important for build masks
-    nbmaps = nbmaps.contiguous()
+    nbmaps = set_neighbor_pairs(kmap, nbmaps)
     input_mask, output_mask = torch_lattice.backend.build_mask_from_kmap(
         _coords.shape[0],
         kmap["coords"].shape[0],
-        nbmaps.int(),
+        nbmaps,
         nbsizes.int()[0 : kmap["coords"].shape[0]],
     )
 
-    kmap["nbmaps"] = nbmaps
     kmap["nbsizes"] = nbsizes
     kmap["nbsizes_cpu"] = nbsizes.int().cpu().contiguous()
     kmap["input_mask"] = input_mask
@@ -205,8 +208,7 @@ def build_kmap_Fetch_on_Demand_hashmap(
     nbmaps = torch.nonzero(results != -1)
     nbmaps[:, 0] = results.view(-1)[nbmaps[:, 0] * results.size(1) + nbmaps[:, 1]]
 
-    # nbmaps need to be transposed for Fetch-on-Demand
-    kmap["nbmaps"] = nbmaps.transpose(0, 1).int()
+    set_fod_neighbor_maps(kmap, nbmaps)
     kmap["nbsizes"] = nbsizes
     nbsizes_cpu = nbsizes.cpu().contiguous()
     kmap["nbsizes_cpu"] = nbsizes_cpu

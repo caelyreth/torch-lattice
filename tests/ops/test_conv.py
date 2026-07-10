@@ -572,8 +572,8 @@ def test_native_fod_compactor_matches_reference_layout():
         device="cuda",
     )
 
-    nbmaps, nbsizes, nbaddrs, qnbaddrs = torch_lattice.backend.compact_out_in_map_fod(
-        out_in_map
+    fod_map, neighbor_pairs, nbsizes, nbaddrs, qnbaddrs = (
+        torch_lattice.backend.compact_out_in_map_fod(out_in_map)
     )
     results = torch.t(out_in_map).contiguous()
     ref_nbsizes = torch.sum(results != -1, dim=1).to(torch.int32)
@@ -590,7 +590,139 @@ def test_native_fod_compactor_matches_reference_layout():
         ref_nbsizes.numel(), ref_nbsizes, ref_nbaddrs, ref_qnbaddrs
     )
 
-    torch.testing.assert_close(nbmaps, ref_nbmaps)
+    torch.testing.assert_close(fod_map, ref_nbmaps)
+    torch.testing.assert_close(neighbor_pairs, ref_nbmaps.t().contiguous())
     torch.testing.assert_close(nbsizes, ref_nbsizes)
     torch.testing.assert_close(nbaddrs, ref_nbaddrs)
     torch.testing.assert_close(qnbaddrs, ref_qnbaddrs)
+
+
+def _dataflow_config(dataflow, *, kmap_mode, fusion=False):
+    config = F.conv_config.get_default_conv_config().copy()
+    config.dataflow = dataflow
+    config.kmap_mode = kmap_mode
+    config.ifsort = False
+    config.FOD_fusion = fusion
+    return config
+
+
+def _training_case(*, dtype, kmap_mode, fusion, subm):
+    side = 5
+    grid = torch.stack(
+        torch.meshgrid(
+            *(torch.arange(side, device="cuda", dtype=torch.int32) for _ in range(3)),
+            indexing="ij",
+        ),
+        dim=-1,
+    ).reshape(-1, 3)
+    coords = torch.cat(
+        (torch.zeros((grid.shape[0], 1), device="cuda", dtype=torch.int32), grid),
+        dim=1,
+    )
+    spatial_range = (1, side, side, side)
+    features = torch.randn(grid.shape[0], 8, device="cuda", dtype=dtype)
+    weight = torch.randn(27, 8, 8, device="cuda", dtype=dtype)
+    stride = 1 if subm else 2
+
+    def run(dataflow):
+        input_features = features.clone().requires_grad_(True)
+        runtime_weight = weight.clone().requires_grad_(True)
+        sparse = torch_lattice.SparseTensor(
+            input_features,
+            coords,
+            spatial_range=spatial_range,
+        )
+        output = F.conv3d(
+            sparse,
+            runtime_weight,
+            3,
+            stride=stride,
+            padding=1,
+            config=_dataflow_config(
+                dataflow,
+                kmap_mode=kmap_mode,
+                fusion=fusion,
+            ),
+            training=True,
+            subm=subm,
+        )
+        return sparse, output, input_features, runtime_weight
+
+    return run
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+@pytest.mark.parametrize("kmap_mode", ["hashmap", "hashmap_on_the_fly"])
+@pytest.mark.parametrize("fusion", [False, True])
+@pytest.mark.parametrize("subm", [False, True])
+@pytest.mark.parametrize("tensor_dtype", [torch.float32, torch.float16])
+def test_fetch_on_demand_training_matches_gather_scatter(
+    tensor_dtype, kmap_mode, fusion, subm
+):
+    run = _training_case(
+        dtype=tensor_dtype,
+        kmap_mode=kmap_mode,
+        fusion=fusion,
+        subm=subm,
+    )
+    fod_input, fod_output, fod_features, fod_weight = run(F.Dataflow.FetchOnDemand)
+    _, reference, reference_features, reference_weight = run(F.Dataflow.GatherScatter)
+
+    torch.testing.assert_close(fod_output.coords, reference.coords)
+    relative_tolerance = 2e-2 if tensor_dtype == torch.float16 else 5e-3
+    absolute_tolerance = 3e-2 if tensor_dtype == torch.float16 else 2e-2
+    torch.testing.assert_close(
+        fod_output.feats,
+        reference.feats,
+        rtol=relative_tolerance,
+        atol=absolute_tolerance,
+    )
+
+    pairs = fod_input.coord_manager.cached_relations[0]["neighbor_pairs"]
+    fod_map = fod_input.coord_manager.cached_relations[0]["fod_neighbor_map"]
+    assert pairs.dtype == torch.int32
+    assert pairs.ndim == 2 and pairs.shape[1] == 2
+    assert pairs.is_contiguous()
+    assert fod_map.dtype == torch.int32
+    assert fod_map.shape == (2, pairs.shape[0])
+    assert fod_map.is_contiguous()
+    torch.testing.assert_close(fod_map, pairs.t().contiguous())
+
+    grad = torch.randn_like(fod_output.feats)
+    fod_output.feats.backward(grad)
+    reference.feats.backward(grad)
+    gradient_tolerance = 1e-2 if tensor_dtype == torch.float16 else 1e-5
+    torch.testing.assert_close(
+        fod_features.grad,
+        reference_features.grad,
+        rtol=gradient_tolerance,
+        atol=gradient_tolerance,
+    )
+    torch.testing.assert_close(
+        fod_weight.grad,
+        reference_weight.grad,
+        rtol=gradient_tolerance,
+        atol=gradient_tolerance,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+def test_fetch_on_demand_backward_is_repeatable():
+    run = _training_case(
+        dtype=torch.float32,
+        kmap_mode="hashmap_on_the_fly",
+        fusion=True,
+        subm=False,
+    )
+    gradients = []
+    grad = None
+    for _ in range(3):
+        _, output, features, weight = run(F.Dataflow.FetchOnDemand)
+        if grad is None:
+            grad = torch.randn_like(output.feats)
+        output.feats.backward(grad)
+        gradients.append((features.grad.clone(), weight.grad.clone()))
+
+    for features_grad, weight_grad in gradients[1:]:
+        torch.testing.assert_close(features_grad, gradients[0][0], rtol=0, atol=0)
+        torch.testing.assert_close(weight_grad, gradients[0][1], rtol=0, atol=0)

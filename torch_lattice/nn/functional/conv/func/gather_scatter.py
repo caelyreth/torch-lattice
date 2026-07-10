@@ -5,6 +5,7 @@ from torch.autograd import Function
 
 import torch_lattice
 import torch_lattice.backend
+from torch_lattice.nn.functional.conv.kmap.layout import neighbor_pairs
 
 __all__ = ["GatherScatterConvolutionFuntion", "gather_scatter_forward_no_grad"]
 
@@ -39,7 +40,7 @@ def _gather_scatter_forward_impl(
     *,
     return_context: bool = True,
 ) -> tuple[torch.Tensor, tuple]:
-    nbmaps = kmap["nbmaps"]
+    nbmaps = neighbor_pairs(kmap)
     nbsizes = kmap["nbsizes"]
     nbsizes_cpu = kmap.get("nbsizes_cpu")
     if nbsizes_cpu is None:
@@ -63,8 +64,6 @@ def _gather_scatter_forward_impl(
     weight = weight.contiguous()
     if not return_context:
         weight = _select_active_weight(weight, kmap)
-    nbmaps = nbmaps.int().contiguous()
-
     if input.device.type == "cuda":
         if torch.float16 in [input.dtype, weight.dtype]:
             input = input.to(torch.float16)

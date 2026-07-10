@@ -265,7 +265,8 @@ __global__ void compact_out_in_map_fod_kernel(
     int n_out, int kernel_volume, int n_blocks,
     const int *__restrict__ out_in_map,
     const int *__restrict__ block_offsets,
-    int *__restrict__ nbmaps) {
+    int *__restrict__ fod_map,
+    int *__restrict__ neighbor_pairs) {
   int tidx = blockIdx.x * blockDim.x + threadIdx.x;
   int total = kernel_volume * n_blocks;
   if (tidx >= total) return;
@@ -278,8 +279,10 @@ __global__ void compact_out_in_map_fod_kernel(
   for (int row = start; row < end; row++) {
     int input_idx = out_in_map[row * kernel_volume + kernel_idx];
     if (input_idx >= 0) {
-      nbmaps[out_pos] = input_idx;
-      nbmaps[out_pos + block_offsets[kernel_volume * n_blocks]] = row;
+      fod_map[out_pos] = input_idx;
+      fod_map[out_pos + block_offsets[kernel_volume * n_blocks]] = row;
+      neighbor_pairs[out_pos * 2] = input_idx;
+      neighbor_pairs[out_pos * 2 + 1] = row;
       out_pos++;
     }
   }
@@ -363,16 +366,18 @@ std::vector<at::Tensor> compact_out_in_map_fod(at::Tensor _out_in_map) {
   at::Tensor _qnbaddrs = compact[3];
   int mapsize = _nbaddrs[kernel_volume].item<int>();
 
-  at::Tensor _nbmaps = torch::empty({2, mapsize}, options);
+  at::Tensor _fod_map = torch::empty({2, mapsize}, options);
+  at::Tensor _neighbor_pairs = torch::empty({mapsize, 2}, options);
   compact_out_in_map_fod_kernel<<<ceil((double)(kernel_volume * n_blocks) / 128), 128>>>(
       n_out,
       kernel_volume,
       n_blocks,
       _out_in_map.data_ptr<int>(),
       _block_offsets.data_ptr<int>(),
-      _nbmaps.data_ptr<int>());
+      _fod_map.data_ptr<int>(),
+      _neighbor_pairs.data_ptr<int>());
 
-  return {_nbmaps, _nbsizes, _nbaddrs, _qnbaddrs};
+  return {_fod_map, _neighbor_pairs, _nbsizes, _nbaddrs, _qnbaddrs};
 }
 
 

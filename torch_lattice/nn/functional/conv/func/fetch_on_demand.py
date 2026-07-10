@@ -1,11 +1,14 @@
 from typing import Dict
 
-import warnings
 import torch
 from torch.autograd import Function
 
 import torch_lattice
 import torch_lattice.backend
+from torch_lattice.nn.functional.conv.kmap.layout import (
+    fod_neighbor_map,
+    neighbor_pairs,
+)
 
 __all__ = ["FetchOnDemandConvolutionFuntion", "fetch_on_demand_forward_no_grad"]
 
@@ -42,12 +45,13 @@ def _fetch_on_demand_forward_impl(
     *,
     return_context: bool = True,
 ) -> tuple[torch.Tensor, tuple]:
-    nbmaps = kmap["nbmaps"]
+    fod_map = fod_neighbor_map(kmap)
+    pairs = neighbor_pairs(kmap)
     nbsizes = kmap["nbsizes"]
     nbsizes_cpu = kmap.get("nbsizes_cpu")
     sizes = kmap["sizes"]
 
-    mapsize = nbmaps.size(1)
+    mapsize = fod_map.size(1)
 
     input = input.contiguous()
     weight = weight.contiguous()
@@ -86,8 +90,7 @@ def _fetch_on_demand_forward_impl(
         return output.to(weight.dtype), (
             input,
             weight,
-            nbmaps,
-            nbsizes,
+            pairs,
             nbsizes_cpu,
             transposed,
             True,
@@ -111,7 +114,7 @@ def _fetch_on_demand_forward_impl(
         output = torch_lattice.backend.conv_forward_fetch_on_demand_cuda(
             input,
             weight,
-            nbmaps,
+            fod_map,
             mapsize,
             nbaddrs,
             qnbaddrs,
@@ -125,7 +128,7 @@ def _fetch_on_demand_forward_impl(
         output = torch_lattice.backend.conv_forward_fetch_on_demand_no_fusion_cuda(
             input,
             weight,
-            nbmaps,
+            fod_map,
             nbsizes_cpu,
             mapsize,
             output_size,
@@ -140,8 +143,7 @@ def _fetch_on_demand_forward_impl(
     return output.to(weight.dtype), (
         input,
         weight,
-        nbmaps,
-        nbsizes,
+        pairs,
         nbsizes_cpu,
         transposed,
         False,
@@ -177,20 +179,6 @@ class FetchOnDemandConvolutionFuntion(Function):
         config: Dict,
         transposed: bool = False,
     ) -> torch.Tensor:
-        """if transposed:
-            input_nbmaps = kmap["nbmaps"][1, :]
-            output_nbmaps = kmap["nbmaps"][0, :]
-        else:
-            input_nbmaps = kmap["nbmaps"][0, :]
-            output_nbmaps = kmap["nbmaps"][1, :]
-
-        M = nbmaps.size(0)
-        nbmaps_t = torch.zeros((2, M),
-            dtype=torch.int, device=input.device, requires_grad=False)
-        for l in range(M):
-            nbmaps_t[0, l] = nbmaps[l, 0]
-            nbmaps_t[1, l] = nbmaps[l, 1]"""
-
         output, ctx.for_backwards = _fetch_on_demand_forward_impl(
             input,
             weight,
@@ -203,9 +191,7 @@ class FetchOnDemandConvolutionFuntion(Function):
     @staticmethod
     # @custom_bwd
     def backward(ctx, grad_output: torch.Tensor):
-        input, weight, nbmaps, nbsizes, nbsizes_cpu, transposed, center_only = (
-            ctx.for_backwards
-        )
+        input, weight, pairs, nbsizes_cpu, transposed, center_only = ctx.for_backwards
 
         if grad_output.dtype != weight.dtype:
             grad_output = grad_output.to(weight.dtype)
@@ -225,9 +211,6 @@ class FetchOnDemandConvolutionFuntion(Function):
                 grad_weight = None
             return (grad_input, grad_weight, None, None, None, None)
 
-        warnings.warn(
-            "[Warning] Fetch_On_Demand does not have backward kernels now. Use Gather-Scatter for backward."
-        )
         grad_input = torch.zeros_like(input)
         grad_weight = torch.zeros_like(weight)
 
@@ -238,7 +221,7 @@ class FetchOnDemandConvolutionFuntion(Function):
                 grad_output.contiguous(),
                 weight,
                 grad_weight,
-                nbmaps,
+                pairs,
                 nbsizes_cpu,
                 transposed,
             )
@@ -249,7 +232,7 @@ class FetchOnDemandConvolutionFuntion(Function):
                 grad_output.contiguous(),
                 weight,
                 grad_weight,
-                nbmaps,
+                pairs,
                 nbsizes_cpu,
                 transposed,
             )

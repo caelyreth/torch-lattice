@@ -3,6 +3,10 @@ import torch
 
 import torch_lattice.backend
 import torch_lattice.backends
+from torch_lattice.nn.functional.conv.kmap.layout import (
+    set_fod_neighbor_maps,
+    set_neighbor_pairs,
+)
 from torch_lattice.utils import make_tensor
 
 
@@ -218,14 +222,14 @@ def build_kmap_Gather_Scatter_hashmap_on_the_fly(
         nbmaps[:, 0] = results.view(-1)[nbmaps[:, 0] * results.size(1) + nbmaps[:, 1]]
         # important for build masks
         nbmaps = nbmaps.contiguous()
+    nbmaps = set_neighbor_pairs(kmap, nbmaps)
     input_mask, output_mask = torch_lattice.backend.build_mask_from_kmap(
         _coords.shape[0],
         kmap["coords"].shape[0],
-        nbmaps.int(),
+        nbmaps,
         nbsizes.int()[0 : kmap["coords"].shape[0]],
     )
 
-    kmap["nbmaps"] = nbmaps
     kmap["nbsizes"] = nbsizes
     kmap["nbsizes_cpu"] = nbsizes.int().cpu().contiguous()
     kmap["input_mask"] = input_mask
@@ -269,7 +273,7 @@ def build_kmap_Fetch_on_Demand_hashmap_on_the_fly(
         and kmap["out_in_map"].size(1) >= 9
         and hasattr(torch_lattice.backend, "compact_out_in_map_fod")
     ):
-        nbmaps, nbsizes, nbaddrs, qnbaddrs = (
+        fod_map, nbmaps, nbsizes, nbaddrs, qnbaddrs = (
             torch_lattice.backend.compact_out_in_map_fod(kmap["out_in_map"])
         )
     else:
@@ -277,7 +281,8 @@ def build_kmap_Fetch_on_Demand_hashmap_on_the_fly(
         nbsizes = torch.sum(results != -1, dim=1).to(torch.int)
         nbmaps = torch.nonzero(results != -1)
         nbmaps[:, 0] = results.view(-1)[nbmaps[:, 0] * results.size(1) + nbmaps[:, 1]]
-        nbmaps = nbmaps.transpose(0, 1).int()
+        nbmaps = nbmaps.int().contiguous()
+        fod_map = nbmaps.t().contiguous()
         if FOD_fusion:
             kernel_volume = nbsizes.size(0)
             nbaddrs = torch.zeros(
@@ -292,13 +297,13 @@ def build_kmap_Fetch_on_Demand_hashmap_on_the_fly(
                 kernel_volume, nbsizes, nbaddrs, qnbaddrs
             )
 
-    kmap["nbmaps"] = nbmaps.int()
+    set_fod_neighbor_maps(kmap, nbmaps, fod_map)
     kmap["nbsizes"] = nbsizes
     nbsizes_cpu = nbsizes.cpu().contiguous()
     kmap["nbsizes_cpu"] = nbsizes_cpu
     if subm and nbsizes_cpu.numel() % 2 == 1:
         mid_kernel = nbsizes_cpu.numel() // 2
-        mapsize = nbmaps.size(1)
+        mapsize = nbmaps.size(0)
         kmap["FOD_center_only"] = int(nbsizes_cpu[mid_kernel]) == int(mapsize) and int(
             nbsizes_cpu.sum()
         ) == int(mapsize)
