@@ -254,11 +254,11 @@ wheels = [
 
 [[package]]
 name = "lattice-contract"
-version = "0.3.1"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0e/2b/5effdbc37f447d3a465eb4d82b42e447b358a4f3ab2c69820b4b71b3cd1c/lattice_contract-0.3.1.tar.gz", hash = "sha256:507e6ea2379f25aca7b99b0d0c71e2d55fb31bf03bba55acd702a00190c19510", size = 12439, upload-time = "2026-07-09T02:57:24.612Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/e9/34d0557fb7cb2946dc232ca47db35363a8be9a106feafae364cf353ffbee/lattice_contract-0.4.0.tar.gz", hash = "sha256:954f77c1459186b9fd6107e8135d4c58e5dc03ff89a9133e3b17656587cc1509", size = 13266, upload-time = "2026-07-10T09:01:37.862Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/14/99a8782fe4b7edf19ded109d9a2e3b10b248127c467a7a4b59f3c8ea821b/lattice_contract-0.3.1-py3-none-any.whl", hash = "sha256:2b508de9b54b8b545dea890840f1b9981a5f669756339daaea0c8e23163f0b65", size = 12485, upload-time = "2026-07-09T02:57:23.698Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/82/92dd44ed1e51f910cee65c1428b6aadf3b696c807bd97f79911a62fdf144/lattice_contract-0.4.0-py3-none-any.whl", hash = "sha256:79954905c031b3e6bfd16e59f8ae6418740102b93259c06e515e04842ed84ded", size = 12743, upload-time = "2026-07-10T09:01:36.847Z" },
 ]
 
 [[package]]
@@ -766,7 +766,7 @@ wheels = [
 
 [[package]]
 name = "torch-lattice"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "lattice-contract" },
@@ -792,7 +792,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lattice-contract", specifier = ">=0.3.1" },
+    { name = "lattice-contract", specifier = ">=0.4,<0.5" },
     { name = "numpy", specifier = ">=2.4" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
     { name = "safetensors", specifier = ">=0.8.0" },
@@ -812,7 +812,7 @@ docs = [
 
 [[package]]
 name = "torch-lattice-benchmarks"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "benchmarks" }
 dependencies = [
     { name = "torch-lattice" },
@@ -823,7 +823,7 @@ requires-dist = [{ name = "torch-lattice", editable = "." }]
 
 [[package]]
 name = "torch-lattice-conformance"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "conformance" }
 dependencies = [
     { name = "torch-lattice" },
