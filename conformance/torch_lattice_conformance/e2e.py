@@ -41,6 +41,7 @@ def main() -> None:
         "trilinear_upsample",
         "pool_transpose",
         "sparse_reindex",
+        "gameleon_reproduction_block",
     ]
     _sparse_classifier(ROOT / "sparse_classifier")
     _target_branch(ROOT / "target_branch")
@@ -54,6 +55,7 @@ def main() -> None:
     _trilinear_upsample(ROOT / "trilinear_upsample")
     _pool_transpose(ROOT / "pool_transpose")
     _sparse_reindex(ROOT / "sparse_reindex")
+    _gameleon_reproduction_block(ROOT / "gameleon_reproduction_block")
     (ROOT / "manifest.json").write_text(
         json.dumps({"cases": cases}, indent=2),
         encoding="utf-8",
@@ -242,6 +244,39 @@ class SparseReindex(nn.Module):
         target: SparseTensor,
     ) -> SparseTensor:
         return torch_lattice.reindex_sparse(source, target, fill=-0.75)
+
+
+class GameleonReproductionBlock(nn.Module):
+    """Compact training/export gate for Gameleon's sparse decoder routes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.encoder = spnn.NormalizedSubmConv3d(3, 4, kernel_size=(3, 1, 1), bias=True)
+        self.down = spnn.AvgPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1))
+        self.context = spnn.NormalizedSubmConv3d(4, 4, kernel_size=(3, 1, 1), bias=True)
+        self.learned_up = spnn.NormalizedGenerativeConvTranspose3d(
+            4,
+            4,
+            kernel_size=(3, 1, 1),
+            stride=(2, 1, 1),
+            padding=(1, 0, 0),
+            bias=True,
+        )
+        self.pool_up = spnn.PoolTranspose3d(
+            kernel_size=(3, 1, 1),
+            stride=(2, 1, 1),
+            padding=(1, 0, 0),
+        )
+        self.linear_up = spnn.TrilinearUpsample3d(stride=(2, 1, 1))
+        self.output = spnn.NormalizedSubmConv3d(12, 3, kernel_size=(3, 1, 1), bias=True)
+
+    def forward(self, x: SparseTensor) -> SparseTensor:
+        encoded = self.context(self.down(self.encoder(x)))
+        learned = self.learned_up(encoded, x)
+        learned = torch_lattice.reindex_sparse(learned, x)
+        pooled = self.pool_up(encoded, x)
+        linear = self.linear_up(encoded, x)
+        return self.output(torch_lattice.cat([learned, pooled, linear]))
 
 
 def _sparse_classifier(case_dir: Path) -> None:
@@ -567,6 +602,31 @@ def _sparse_reindex(case_dir: Path) -> None:
     _save_sparse_expected(case_dir, expected)
 
 
+def _gameleon_reproduction_block(case_dir: Path) -> None:
+    case_dir.mkdir()
+    model = GameleonReproductionBlock()
+    x = _gameleon_input()
+    model, x_eval = _cuda_eval_pair(model, x)
+    target = torch.tanh(x_eval.feats * 0.75)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    model.train()
+    with _conv_dataflow(Dataflow.GatherScatter):
+        for _ in range(3):
+            optimizer.zero_grad(set_to_none=True)
+            loss = torch.nn.functional.mse_loss(
+                model(x_eval).feats,
+                target,
+            )
+            loss.backward()
+            optimizer.step()
+        model.eval()
+        expected = model(x_eval).cpu()
+    model = model.cpu()
+    save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
+    _save_sparse_inputs(case_dir, "x", x)
+    _save_sparse_expected(case_dir, expected)
+
+
 def _generative_transpose_reference(
     model: GenerativeTransposeConvolution,
     tensor: SparseTensor,
@@ -656,6 +716,30 @@ def _transpose_input() -> SparseTensor:
             dtype=torch.int32,
         ),
         spatial_range=(1, 4, 1, 1),
+    )
+
+
+def _gameleon_input() -> SparseTensor:
+    return SparseTensor(
+        feats=torch.tensor(
+            [
+                [0.2, -0.1, 0.4],
+                [0.5, 0.3, -0.2],
+                [-0.4, 0.7, 0.1],
+                [0.9, -0.8, 0.6],
+                [-0.3, 0.2, 0.8],
+                [0.6, -0.5, 0.1],
+                [0.4, 0.9, -0.7],
+                [-0.2, 0.3, 0.5],
+            ],
+            dtype=torch.float32,
+        ),
+        coords=torch.tensor(
+            [[0, row, 0, 0] for row in range(8)],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 8, 1, 1),
+        batch_counts=(8,),
     )
 
 

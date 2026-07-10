@@ -218,6 +218,23 @@ When porting tuned models or scripts:
 * run migration/conformance checks after changing kernel-map or convolution
   configuration.
 
+Gameleon reproduction gate
+---------------------------
+
+Treat a Gameleon port as a semantic model migration, not an import alias. Replace
+Minkowski coordinate-map-key arguments with explicit target ``SparseTensor``
+values, and replace stride-one TorchSparse refinement convolutions with
+``SubmConv3d``. The conformance suite composes normalized convolution, average
+downsampling, target transpose convolution, pooling transpose, trilinear
+upsampling, exact reindexing, and sparse concatenation in one trainable block.
+
+Checkpoint conversion must be explicit and strict. Convert parameter names and
+kernel layouts into Torch Lattice's documented state-dict layout, then require
+that every expected tensor is loaded. Do not use ``strict=False`` or retain
+randomly initialized missing parameters for a reproduction run. Before an
+expensive training job, require a CUDA optimizer-step test, checkpoint roundtrip,
+and whole-block output/gradient comparison against the source implementation.
+
 Fetch-on-Demand training correctness
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
