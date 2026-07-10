@@ -1,6 +1,6 @@
 [project]
 name = "torch-lattice-benchmarks"
-version = "0.3.0"
+version = "0.3.1"
 description = "CUDA benchmark suite for torch-lattice"
 requires-python = ">=3.14"
 dependencies = [
