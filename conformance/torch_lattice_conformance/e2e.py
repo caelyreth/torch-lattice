@@ -40,6 +40,7 @@ def main() -> None:
         "target_transpose_convolution",
         "trilinear_upsample",
         "pool_transpose",
+        "sparse_reindex",
     ]
     _sparse_classifier(ROOT / "sparse_classifier")
     _target_branch(ROOT / "target_branch")
@@ -52,6 +53,7 @@ def main() -> None:
     _target_transpose_convolution(ROOT / "target_transpose_convolution")
     _trilinear_upsample(ROOT / "trilinear_upsample")
     _pool_transpose(ROOT / "pool_transpose")
+    _sparse_reindex(ROOT / "sparse_reindex")
     (ROOT / "manifest.json").write_text(
         json.dumps({"cases": cases}, indent=2),
         encoding="utf-8",
@@ -231,6 +233,15 @@ class TrilinearUpsample(nn.Module):
         target: SparseTensor,
     ) -> SparseTensor:
         return self.up(source, target)
+
+
+class SparseReindex(nn.Module):
+    def forward(
+        self,
+        source: SparseTensor,
+        target: SparseTensor,
+    ) -> SparseTensor:
+        return torch_lattice.reindex_sparse(source, target, fill=-0.75)
 
 
 def _sparse_classifier(case_dir: Path) -> None:
@@ -520,6 +531,35 @@ def _trilinear_upsample(case_dir: Path) -> None:
     expected = model(source, target)
     builder = TorchLatticeArtifactBuilder(input_dtype="f32", create_default_input=False)
     source_value = builder.sparse_argument("source", channels=2, stride=(2, 1, 1))
+    target_value = builder.sparse_argument("target", channels=1)
+    lower_fx_artifact(builder, model, inputs=(source_value, target_value))
+    builder.save(case_dir)
+    _save_sparse_inputs(case_dir, "source", source, extra={"target": target})
+    _save_sparse_expected(case_dir, expected)
+
+
+def _sparse_reindex(case_dir: Path) -> None:
+    case_dir.mkdir()
+    model = SparseReindex().eval()
+    source = SparseTensor(
+        feats=torch.tensor([[0.25, -0.5], [0.75, 0.4]], dtype=torch.float32),
+        coords=torch.tensor([[0, 2, 0, 0], [0, 0, 0, 0]], dtype=torch.int32),
+        spatial_range=(1, 4, 1, 1),
+    )
+    target = SparseTensor(
+        feats=torch.zeros((3, 1), dtype=torch.float32),
+        coords=torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 4, 1, 1),
+    )
+    if torch.cuda.is_available():
+        expected = model(source.cuda(), target.cuda()).cpu()
+    else:
+        expected = model(source, target)
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32", create_default_input=False)
+    source_value = builder.sparse_argument("source", channels=2)
     target_value = builder.sparse_argument("target", channels=1)
     lower_fx_artifact(builder, model, inputs=(source_value, target_value))
     builder.save(case_dir)

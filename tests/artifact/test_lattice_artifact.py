@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import pytest
 import torch
-from safetensors.torch import load_file
-from torch import nn
-
 import torch_lattice
 from lattice_contract import DIALECT_SCHEMA_DIGEST
+from safetensors.torch import load_file
+from torch import nn
 from torch_lattice import nn as spnn
 from torch_lattice.artifact import (
     LatticeModelArtifactOptions,
@@ -84,6 +83,11 @@ class MultiInputOutputModel(nn.Module):
     def forward(self, x, target):
         sparse = self.conv(x, coordinates=target)
         return sparse, self.pool(sparse)
+
+
+class ReindexSparseModel(nn.Module):
+    def forward(self, x, target):
+        return torch_lattice.reindex_sparse(x, target, fill=-1.25)
 
 
 def test_artifact_fx_tiny_sparse_pool_linear_artifact(tmp_path):
@@ -175,7 +179,9 @@ def test_artifact_fx_sparse_binary_join_and_fill_artifact(tmp_path):
     assert "rhs_fill = 1.5 : f32" in graph
 
 
-def test_artifact_fx_operator_mul_uses_inner_sparse_binary_artifact(tmp_path):
+def test_artifact_fx_operator_mul_uses_inner_sparse_binary_artifact(
+    tmp_path,
+):
     model = MulSparseModel().eval()
 
     report = save_lattice_model_artifact(
@@ -218,6 +224,26 @@ def test_artifact_multi_input_output_uses_signature_abi(tmp_path):
     assert "lattice.global_pool" in graph
 
 
+def test_artifact_fx_sparse_reindex_preserves_target_contract(tmp_path):
+    sample = _sample_sparse_tensor()
+    target = torch_lattice.SparseTensor(
+        torch.empty((2, 1), dtype=torch.float32),
+        sample.coords[[3, 0]].clone(),
+        spatial_range=sample.spatial_range,
+        batch_counts=(1, 1),
+    )
+
+    report = save_lattice_model_artifact(
+        ReindexSparseModel().eval(),
+        tmp_path / "reindex.lattice",
+        example_inputs=(sample, target),
+    )
+    graph = report.graph_path.read_text(encoding="utf-8")
+
+    assert "lattice.sparse.reindex" in graph
+    assert "fill = -1.25 : f32" in graph
+
+
 def test_artifact_validation_option_controls_writer_validation(tmp_path, monkeypatch):
     calls = []
 
@@ -249,7 +275,10 @@ def test_artifact_validation_option_controls_writer_validation(tmp_path, monkeyp
     ("module", "expected_op"),
     [
         (spnn.Conv3d(2, 3, kernel_size=1, bias=False), "lattice.conv3d"),
-        (spnn.SubmConv3d(2, 3, kernel_size=3, bias=False), "lattice.subm_conv3d"),
+        (
+            spnn.SubmConv3d(2, 3, kernel_size=3, bias=False),
+            "lattice.subm_conv3d",
+        ),
         (
             spnn.ConvTranspose3d(2, 3, kernel_size=2, stride=2, bias=False),
             "lattice.conv_transpose3d",

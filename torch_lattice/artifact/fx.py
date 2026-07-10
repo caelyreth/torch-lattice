@@ -18,7 +18,11 @@ from .builder import (
     TorchLatticeArtifactBuilder,
 )
 
-__all__ = ["LatticeArtifactInterpreter", "LatticeTracer", "lower_fx_artifact"]
+__all__ = [
+    "LatticeArtifactInterpreter",
+    "LatticeTracer",
+    "lower_fx_artifact",
+]
 
 
 _CAT_FUNCTIONS = frozenset(
@@ -63,9 +67,19 @@ _VOXELIZE_FUNCTIONS = frozenset(
 _DEVOXELIZE_FUNCTIONS = frozenset(
     fn for fn in (torch_lattice.devoxelize, F.devoxelize) if fn is not None
 )
+_REINDEX_FUNCTIONS = frozenset(
+    fn
+    for fn in (torch_lattice.reindex_sparse, lattice_ops.reindex_sparse)
+    if fn is not None
+)
 _STRUCTURAL_FUNCTIONS = frozenset((operator.getitem,))
 FxLoweringFn = Callable[
-    ["LatticeArtifactInterpreter", fx.node.Target, tuple[Any, ...], dict[str, Any]],
+    [
+        "LatticeArtifactInterpreter",
+        fx.node.Target,
+        tuple[Any, ...],
+        dict[str, Any],
+    ],
     Any,
 ]
 
@@ -99,6 +113,7 @@ class LatticeTracer(fx.Tracer):
                 | frozenset(_BINARY_FUNCTIONS)
                 | _VOXELIZE_FUNCTIONS
                 | _DEVOXELIZE_FUNCTIONS
+                | _REINDEX_FUNCTIONS
             ),
         )
 
@@ -236,6 +251,21 @@ class LatticeArtifactInterpreter(fx.Interpreter):
             voxel_size=kwargs.get("voxel_size", 1.0),
             origin=kwargs.get("origin", 0.0),
             interpolation=kwargs.get("interpolation", "nearest"),
+        )
+
+    @fx_function_lowering(*_REINDEX_FUNCTIONS)
+    def _reindex_sparse(
+        self,
+        target: fx.node.Target,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> ArtifactValue:
+        del target
+        return self.builder.sparse_reindex(
+            _current_node_name(self, "reindex"),
+            _artifact_arg(args, kwargs, 0, "input", context="reindex_sparse"),
+            _artifact_arg(args, kwargs, 1, "target", context="reindex_sparse"),
+            fill=float(kwargs.get("fill", 0.0)),
         )
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from torch_lattice import SparseTensor
-from torch_lattice.operators import cat, generative_add
+from torch_lattice.operators import cat, generative_add, reindex_sparse
 
 from torch_lattice_bench.cases.common import (
     F,
@@ -31,10 +31,31 @@ def cases(
             ("sparse_tensor_to_device_noop", _to_device, ("n_in",), None),
             ("sparse_tensor_half", _half, ("elements",), None),
             ("cat_features", _cat_features, ("elements",), None),
-            ("generative_add_overlap", _generative_add_overlap, ("elements",), None),
-            ("generative_add_shifted", _generative_add_shifted, ("elements",), None),
-            ("global_avg_pool", lambda f: F.global_avg_pool(f.tensor), ("n_in",), None),
-            ("global_max_pool", lambda f: F.global_max_pool(f.tensor), ("n_in",), None),
+            (
+                "generative_add_overlap",
+                _generative_add_overlap,
+                ("elements",),
+                None,
+            ),
+            (
+                "generative_add_shifted",
+                _generative_add_shifted,
+                ("elements",),
+                None,
+            ),
+            ("sparse_reindex", _reindex, ("elements",), None),
+            (
+                "global_avg_pool",
+                lambda f: F.global_avg_pool(f.tensor),
+                ("n_in",),
+                None,
+            ),
+            (
+                "global_max_pool",
+                lambda f: F.global_max_pool(f.tensor),
+                ("n_in",),
+                None,
+            ),
             ("crop_center_half", _crop_center_half, ("n_in",), None),
             (
                 "relu",
@@ -92,6 +113,10 @@ def _generative_add_overlap(fixture: SparseFixture) -> SparseTensor:
 
 def _generative_add_shifted(fixture: SparseFixture) -> SparseTensor:
     return generative_add(fixture.tensor, shifted_sparse(fixture.tensor))
+
+
+def _reindex(fixture: SparseFixture) -> SparseTensor:
+    return reindex_sparse(fixture.tensor, shifted_sparse(fixture.tensor))
 
 
 def _crop_center_half(fixture: SparseFixture) -> SparseTensor:

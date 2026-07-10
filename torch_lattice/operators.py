@@ -13,6 +13,7 @@ SparseBinaryOp = Literal["add", "sub", "mul", "maximum", "minimum"]
 __all__ = [
     "cat",
     "generative_add",
+    "reindex_sparse",
     "sparse_add",
     "sparse_binary",
     "sparse_cat",
@@ -66,6 +67,20 @@ def sparse_binary(
         coords=alignment.coords,
         feats=_apply_binary(lhs_features, rhs_features, op),
     )
+
+
+def reindex_sparse(
+    input: SparseTensor,
+    target: SparseTensor,
+    *,
+    fill: float = 0.0,
+) -> SparseTensor:
+    """Gather ``input`` features onto the exact row order of ``target``."""
+    _require_compatible(input, target)
+    if _same_coords(input, target):
+        return target.replace(feats=input.feats)
+    rows = _coordinate_rows(input.coords, target.coords)
+    return target.replace(feats=_gather_aligned(input.feats, rows, fill=fill))
 
 
 def sparse_add(
@@ -345,6 +360,39 @@ def _gather_aligned(
         return gathered * valid.to(features.dtype).unsqueeze(1)
     filled = torch.full_like(gathered, float(fill))
     return torch.where(valid.unsqueeze(1), gathered, filled)
+
+
+def _coordinate_rows(
+    source: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    if source.shape[0] == 0:
+        return torch.full(
+            (target.shape[0],), -1, dtype=torch.long, device=target.device
+        )
+    if source.dtype == torch.int32:
+        from torch_lattice.nn.functional.hash import sphash
+        from torch_lattice.nn.functional.query import sphashquery
+
+        rows = sphashquery(sphash(target), sphash(source)).to(torch.long)
+        clipped = rows.clamp_min(0)
+        exact = torch.all(source.index_select(0, clipped) == target, dim=1)
+        return torch.where(exact, rows, torch.full_like(rows, -1))
+
+    coordinates = torch.cat((source, target), dim=0)
+    unique, inverse = torch.unique(coordinates, dim=0, return_inverse=True)
+    source_ids = inverse[: source.shape[0]]
+    target_ids = inverse[source.shape[0] :]
+    lookup = torch.full(
+        (unique.shape[0],),
+        -1,
+        dtype=torch.long,
+        device=source.device,
+    )
+    lookup[source_ids] = torch.arange(
+        source.shape[0], dtype=torch.long, device=source.device
+    )
+    return lookup[target_ids]
 
 
 def _apply_binary(

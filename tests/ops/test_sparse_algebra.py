@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 import torch
-
 import torch_lattice
 from torch_lattice.nn.functional.hash import sphash
 from torch_lattice.operators import generative_add
+
 from tests.cases import algebra_cases
 from tests.cases.types import ValueCase
 
@@ -171,6 +171,47 @@ def test_sparse_outer_join_accepts_empty_operand():
 
     torch.testing.assert_close(out.coords, rhs.coords)
     torch.testing.assert_close(out.feats, rhs.feats)
+
+
+def test_sparse_reindex_preserves_target_order_and_fills_missing_rows(
+    selected_device: torch.device,
+):
+    source = torch_lattice.SparseTensor(
+        torch.tensor(
+            [[1.0], [3.0], [5.0]],
+            device=selected_device,
+            requires_grad=True,
+        ),
+        torch.tensor(
+            [[0, 1, 0, 0], [0, 3, 0, 0], [0, 5, 0, 0]],
+            dtype=torch.int32,
+            device=selected_device,
+        ),
+    )
+    target = torch_lattice.SparseTensor(
+        torch.zeros((3, 4), device=selected_device),
+        torch.tensor(
+            [[0, 5, 0, 0], [0, 2, 0, 0], [0, 1, 0, 0]],
+            dtype=torch.int32,
+            device=selected_device,
+        ),
+        batch_counts=(3,),
+    )
+
+    out = torch_lattice.reindex_sparse(source, target, fill=-2.0)
+
+    assert out.coord_manager is target.coord_manager
+    assert out.coord_key == target.coord_key
+    assert out.batch_counts == (3,)
+    torch.testing.assert_close(
+        out.feats,
+        torch.tensor([[5.0], [-2.0], [1.0]], device=selected_device),
+    )
+    out.feats.sum().backward()
+    torch.testing.assert_close(
+        source.feats.grad,
+        torch.tensor([[1.0], [0.0], [1.0]], device=selected_device),
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")

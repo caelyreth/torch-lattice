@@ -269,7 +269,11 @@ class TorchLatticeArtifactBuilder:
         bias = None
         if module.bias is not None:
             bias = self._weight(
-                name, "bias", module.bias.detach(), family="bias", layout="bias_c"
+                name,
+                "bias",
+                module.bias.detach(),
+                family="bias",
+                layout="bias_c",
             )
 
         return {
@@ -606,7 +610,12 @@ class TorchLatticeArtifactBuilder:
             name, "weight", module.weight, dtype=dtype
         )
         bias = self._optional_channel_weight(
-            name, "bias", module.bias, family="bias", layout="bias_c", dtype=dtype
+            name,
+            "bias",
+            module.bias,
+            family="bias",
+            layout="bias_c",
+            dtype=dtype,
         )
         mean = self._optional_channel_weight(
             name, "running_mean", module.running_mean, dtype=dtype
@@ -664,7 +673,12 @@ class TorchLatticeArtifactBuilder:
             name, "weight", module.weight, dtype=dtype
         )
         bias = self._optional_channel_weight(
-            name, "bias", module.bias, family="bias", layout="bias_c", dtype=dtype
+            name,
+            "bias",
+            module.bias,
+            family="bias",
+            layout="bias_c",
+            dtype=dtype,
         )
         if scale is None:
             scale = self._constant_channel_weight(
@@ -907,12 +921,20 @@ class TorchLatticeArtifactBuilder:
         self._require_dense(value, module)
         dtype = _torch_dtype_name(module.weight.dtype)
         weight = self._weight(
-            name, "weight", module.weight.detach(), family="linear", layout="linear_o_i"
+            name,
+            "weight",
+            module.weight.detach(),
+            family="linear",
+            layout="linear_o_i",
         )
         bias = None
         if module.bias is not None:
             bias = self._weight(
-                name, "bias", module.bias.detach(), family="bias", layout="bias_c"
+                name,
+                "bias",
+                module.bias.detach(),
+                family="bias",
+                layout="bias_c",
             )
         out = self._builder.linear(
             input=value.value,
@@ -1045,11 +1067,22 @@ class TorchLatticeArtifactBuilder:
         rhs_fill: float = 0.0,
     ) -> ArtifactValue:
         return self.sparse_binary(
-            name, lhs, rhs, "add", join=join, lhs_fill=lhs_fill, rhs_fill=rhs_fill
+            name,
+            lhs,
+            rhs,
+            "add",
+            join=join,
+            lhs_fill=lhs_fill,
+            rhs_fill=rhs_fill,
         )
 
     def sparse_cat(
-        self, name: str, lhs: ArtifactValue, rhs: ArtifactValue, *, join: str = "inner"
+        self,
+        name: str,
+        lhs: ArtifactValue,
+        rhs: ArtifactValue,
+        *,
+        join: str = "inner",
     ) -> ArtifactValue:
         self._require_sparse_name(lhs, "sparse cat lhs")
         self._require_sparse_name(rhs, "sparse cat rhs")
@@ -1064,6 +1097,25 @@ class TorchLatticeArtifactBuilder:
             result=_safe_value_name(name),
         )
         return ArtifactValue(out, "sparse_tensor", channels)
+
+    def sparse_reindex(
+        self,
+        name: str,
+        input: ArtifactValue,
+        target: ArtifactValue,
+        *,
+        fill: float = 0.0,
+    ) -> ArtifactValue:
+        self._require_sparse_name(input, "sparse reindex input")
+        self._require_sparse_name(target, "sparse reindex target")
+        out = self._builder.sparse_reindex(
+            input=input.value,
+            target=target.value,
+            fill=float(fill),
+            result_type=SparseTensorType(dtype=self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ArtifactValue(out, "sparse_tensor", input.channels)
 
     def output(
         self,
@@ -1096,7 +1148,11 @@ class TorchLatticeArtifactBuilder:
         return self._builder.to_mlir()
 
     def save(
-        self, artifact_dir: str | Path, *, clean: bool = True, validate: bool = True
+        self,
+        artifact_dir: str | Path,
+        *,
+        clean: bool = True,
+        validate: bool = True,
     ):
         from .io import _save_artifact
 
@@ -1124,7 +1180,13 @@ class TorchLatticeArtifactBuilder:
         return None, value.value, "dense_tensor"
 
     def _feature_output(
-        self, name: str, sparse, features, kind: str, channels: int | None, dtype: str
+        self,
+        name: str,
+        sparse,
+        features,
+        kind: str,
+        channels: int | None,
+        dtype: str,
     ) -> ArtifactValue:
         if kind == "sparse_tensor":
             out = self._builder.sparse_with_features(
@@ -1190,7 +1252,10 @@ class TorchLatticeArtifactBuilder:
         tensor = tensor.detach().cpu().contiguous()
         packing = dense_packing()
         stored_dtype = _torch_dtype_name(tensor.dtype)
-        if self.quantize_bits is not None and family in {"conv3d", "linear"}:
+        if self.quantize_bits is not None and family in {
+            "conv3d",
+            "linear",
+        }:
             packed = pack_quantized_weight(
                 tensor,
                 bits=self.quantize_bits,
@@ -1230,7 +1295,11 @@ class TorchLatticeArtifactBuilder:
         if tensor is None:
             return None
         return self._weight(
-            module_name, parameter_name, tensor, family=family, layout=layout
+            module_name,
+            parameter_name,
+            tensor,
+            family=family,
+            layout=layout,
         )
 
     def _constant_channel_weight(

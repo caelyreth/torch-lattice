@@ -4,6 +4,7 @@ from .tensor import SparseTensor
 from .operators import (
     cat,
     generative_add,
+    reindex_sparse,
     sparse_add,
     sparse_binary,
     sparse_cat,
@@ -25,6 +26,7 @@ __all__ = [
     "cat",
     "devoxelize",
     "generative_add",
+    "reindex_sparse",
     "sparse_add",
     "sparse_binary",
     "sparse_cat",
