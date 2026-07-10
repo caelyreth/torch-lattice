@@ -44,3 +44,15 @@ def test_gameleon_reproduction_block_trains_on_cuda(cuda_device) -> None:
         not torch.equal(before[name], parameter)
         for name, parameter in model.named_parameters()
     )
+
+    checkpoint = {
+        name: value.detach().clone() for name, value in model.state_dict().items()
+    }
+    restored = GameleonReproductionBlock().to(cuda_device).eval()
+    restored.load_state_dict(checkpoint, strict=True)
+    model.eval()
+    with torch.no_grad():
+        expected = model(x)
+        actual = restored(x)
+    assert torch.equal(actual.coords, expected.coords)
+    torch.testing.assert_close(actual.feats, expected.feats)
