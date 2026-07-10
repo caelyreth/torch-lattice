@@ -66,6 +66,7 @@ torch-lattice-conformance = { workspace = true }
 [tool.scikit-build]
 wheel.packages = ["torch_lattice"]
 build-dir = "build/{wheel_tag}"
+sdist.exclude = [".ccache/**"]
 
 [tool.yapf]
 based_on_style = "google"
