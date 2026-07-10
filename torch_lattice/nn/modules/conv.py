@@ -105,7 +105,6 @@ class _BaseConv3d(nn.Module):
     def forward(
         self,
         input: SparseTensor,
-        *,
         coordinates: SparseTensor | None = None,
     ) -> SparseTensor:
         convolution = F.normalized_conv3d if self.normalized else F.conv3d

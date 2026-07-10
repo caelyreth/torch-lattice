@@ -354,64 +354,114 @@ class TorchLatticeArtifactBuilder:
         )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
-    @module_lowering(spnn.ConvTranspose3d)
+    @module_lowering(spnn.ConvTranspose3d, arity=(1, 2))
     def conv_transpose3d(
         self,
         name: str,
         module: spnn.ConvTranspose3d,
         input: ArtifactValue,
+        coordinates: ArtifactValue | None = None,
     ) -> ArtifactValue:
-        out = self._builder.conv_transpose3d(
-            **self._conv_args(name, module, input),
-            stride=_triple(module.stride),
-            padding=_triple(module.padding),
-            dilation=_triple(module.dilation),
-        )
+        args = self._conv_args(name, module, input)
+        if coordinates is None:
+            out = self._builder.conv_transpose3d(
+                **args,
+                stride=_triple(module.stride),
+                padding=_triple(module.padding),
+                dilation=_triple(module.dilation),
+            )
+        else:
+            self._require_sparse(coordinates, module)
+            out = self._builder.target_conv_transpose3d(
+                **args,
+                target=coordinates.value,
+                stride=_triple(module.stride),
+                padding=_triple(module.padding),
+                dilation=_triple(module.dilation),
+            )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
-    @module_lowering(spnn.NormalizedConvTranspose3d)
+    @module_lowering(spnn.NormalizedConvTranspose3d, arity=(1, 2))
     def normalized_conv_transpose3d(
         self,
         name: str,
         module: spnn.NormalizedConvTranspose3d,
         input: ArtifactValue,
+        coordinates: ArtifactValue | None = None,
     ) -> ArtifactValue:
         self._require_dense_normalized_weights(module)
-        out = self._builder.normalized_conv_transpose3d(
-            **self._conv_args(name, module, input),
-            stride=_triple(module.stride),
-            padding=_triple(module.padding),
-            dilation=_triple(module.dilation),
-            eps=module.eps,
-        )
+        args = self._conv_args(name, module, input)
+        if coordinates is None:
+            out = self._builder.normalized_conv_transpose3d(
+                **args,
+                stride=_triple(module.stride),
+                padding=_triple(module.padding),
+                dilation=_triple(module.dilation),
+                eps=module.eps,
+            )
+        else:
+            self._require_sparse(coordinates, module)
+            out = self._builder.target_normalized_conv_transpose3d(
+                **args,
+                target=coordinates.value,
+                stride=_triple(module.stride),
+                padding=_triple(module.padding),
+                dilation=_triple(module.dilation),
+                eps=module.eps,
+            )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
-    @module_lowering(spnn.GenerativeConvTranspose3d)
+    @module_lowering(spnn.GenerativeConvTranspose3d, arity=(1, 2))
     def generative_conv_transpose3d(
         self,
         name: str,
         module: spnn.GenerativeConvTranspose3d,
         input: ArtifactValue,
+        coordinates: ArtifactValue | None = None,
     ) -> ArtifactValue:
-        out = self._builder.generative_conv_transpose3d(
-            **self._conv_args(name, module, input),
-            stride=_triple(module.stride),
-        )
+        args = self._conv_args(name, module, input)
+        if coordinates is None:
+            out = self._builder.generative_conv_transpose3d(
+                **args,
+                stride=_triple(module.stride),
+            )
+        else:
+            self._require_sparse(coordinates, module)
+            out = self._builder.target_conv_transpose3d(
+                **args,
+                target=coordinates.value,
+                stride=_triple(module.stride),
+                padding=_triple(module.padding),
+                dilation=_triple(module.dilation),
+            )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
-    @module_lowering(spnn.NormalizedGenerativeConvTranspose3d)
+    @module_lowering(spnn.NormalizedGenerativeConvTranspose3d, arity=(1, 2))
     def normalized_generative_conv_transpose3d(
         self,
         name: str,
         module: spnn.NormalizedGenerativeConvTranspose3d,
         input: ArtifactValue,
+        coordinates: ArtifactValue | None = None,
     ) -> ArtifactValue:
         self._require_dense_normalized_weights(module)
-        out = self._builder.normalized_generative_conv_transpose3d(
-            **self._conv_args(name, module, input),
-            stride=_triple(module.stride),
-            eps=module.eps,
-        )
+        args = self._conv_args(name, module, input)
+        if coordinates is None:
+            out = self._builder.normalized_generative_conv_transpose3d(
+                **args,
+                stride=_triple(module.stride),
+                eps=module.eps,
+            )
+        else:
+            self._require_sparse(coordinates, module)
+            out = self._builder.target_normalized_conv_transpose3d(
+                **args,
+                target=coordinates.value,
+                stride=_triple(module.stride),
+                padding=_triple(module.padding),
+                dilation=_triple(module.dilation),
+                eps=module.eps,
+            )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
     @module_lowering(spnn.Pool3d)

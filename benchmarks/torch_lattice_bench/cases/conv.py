@@ -40,6 +40,13 @@ class ConvPrepared:
     min_spatial_extent: int
 
 
+@dataclass(frozen=True, slots=True)
+class TargetTransposePrepared:
+    source: SparseTensor
+    target: SparseTensor
+    module: torch.nn.Module
+
+
 def cases(
     preset: str,
     *,
@@ -56,7 +63,7 @@ def cases(
         layouts=layouts,
         dtype=dtype,
     )
-    return tuple(
+    ordinary = tuple(
         BenchmarkCase(
             name=name,
             group="conv",
@@ -78,6 +85,27 @@ def cases(
         )
         for name, dataflow, kwargs, kernel_size, stride, min_extent, subm, normalized in _specs()
     )
+    target_transpose = tuple(
+        BenchmarkCase(
+            name=name,
+            group="conv",
+            params=params,
+            setup=lambda p, normalized=normalized: _setup_target_transpose(
+                dict(p), device, normalized=normalized
+            ),
+            prepare=lambda fixture: fixture,
+            run=_run_target_transpose,
+            metrics=lambda params, fixture, prepared, output: {
+                "elements": int(output.feats.numel())
+            },
+            units=("elements",),
+        )
+        for name, normalized in (
+            ("conv_transpose3_target", False),
+            ("normalized_conv_transpose3_target", True),
+        )
+    )
+    return (*ordinary, *target_transpose)
 
 
 def _specs() -> tuple[
@@ -181,9 +209,7 @@ def _setup_factory(
     def setup(params: dict[str, object]) -> ConvFixture:
         base = sparse_fixture(params, device=device)
         if subm:
-            module_type = (
-                spnn.NormalizedSubmConv3d if normalized else spnn.SubmConv3d
-            )
+            module_type = spnn.NormalizedSubmConv3d if normalized else spnn.SubmConv3d
             module = module_type(
                 base.channels,
                 base.channels,
@@ -233,3 +259,36 @@ def _conv_metrics(params, fixture, prepared, output) -> dict[str, int | float]:
     if isinstance(output, SparseTensor):
         return {"elements": int(output.feats.numel())}
     return {}
+
+
+def _setup_target_transpose(
+    params: dict[str, object],
+    device: torch.device,
+    *,
+    normalized: bool,
+) -> TargetTransposePrepared:
+    base = sparse_fixture(params, device=device)
+    target = fresh_sparse(base.tensor)
+    source = SparseTensor(
+        feats=target.feats,
+        coords=target.coords,
+        stride=2,
+        spatial_range=target.spatial_range,
+    )
+    module_type = spnn.NormalizedConvTranspose3d if normalized else spnn.ConvTranspose3d
+    module = module_type(
+        base.channels,
+        base.channels,
+        kernel_size=3,
+        stride=2,
+        padding=1,
+        bias=False,
+    ).to(device)
+    if base.tensor.feats.dtype == torch.float16:
+        module = module.half()
+    return TargetTransposePrepared(source, target, module.eval())
+
+
+def _run_target_transpose(prepared: TargetTransposePrepared) -> SparseTensor:
+    with torch.no_grad():
+        return prepared.module(prepared.source, prepared.target)

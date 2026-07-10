@@ -9,8 +9,8 @@ from torch_lattice.nn import functional as F
 
 def _line(
     *,
-    device: torch.device | str = 'cpu',
-    stride: int = 1,
+    device: torch.device | str = "cpu",
+    stride: int | tuple[int, int, int] = 1,
     requires_grad: bool = False,
 ) -> SparseTensor:
     return SparseTensor(
@@ -31,9 +31,7 @@ def _line(
 
 def test_normalized_subm_matches_weight_norm_formula(cuda_device) -> None:
     x = _line(device=cuda_device)
-    weight = torch.tensor([1.0, 2.0, 3.0], device=cuda_device).reshape(
-        3, 1, 1
-    )
+    weight = torch.tensor([1.0, 2.0, 3.0], device=cuda_device).reshape(3, 1, 1)
     bias = torch.tensor([0.25], device=cuda_device)
 
     actual = F.normalized_conv3d(
@@ -95,14 +93,12 @@ def test_normalized_generative_transpose_uses_one_support(
 ) -> None:
     x = SparseTensor(
         feats=torch.tensor([[2.0]], device=cuda_device),
-        coords=torch.tensor(
-            [[0, 0, 0, 0]], dtype=torch.int32, device=cuda_device
-        ),
+        coords=torch.tensor([[0, 0, 0, 0]], dtype=torch.int32, device=cuda_device),
         stride=2,
         spatial_range=(1, 2, 2, 2),
     )
     config = F.conv_config.get_default_conv_config()
-    config.kmap_mode = 'hashmap'
+    config.kmap_mode = "hashmap"
     module = spnn.NormalizedGenerativeConvTranspose3d(
         1,
         1,
@@ -112,9 +108,7 @@ def test_normalized_generative_transpose_uses_one_support(
         config=config,
     ).to(cuda_device)
     with torch.no_grad():
-        module.kernel.copy_(
-            torch.arange(1.0, 9.0, device=cuda_device).reshape(8, 1, 1)
-        )
+        module.kernel.copy_(torch.arange(1.0, 9.0, device=cuda_device).reshape(8, 1, 1))
 
     out = module(x)
     numerator = F.conv3d(
@@ -145,9 +139,9 @@ def test_normalized_transpose_reuses_forward_inverse_relation(
     cuda_device,
 ) -> None:
     x = _line(device=cuda_device)
-    down = spnn.Conv3d(
-        1, 1, kernel_size=(2, 1, 1), stride=2, bias=False
-    ).to(cuda_device)
+    down = spnn.Conv3d(1, 1, kernel_size=(2, 1, 1), stride=2, bias=False).to(
+        cuda_device
+    )
     up = spnn.NormalizedConvTranspose3d(
         1, 1, kernel_size=(2, 1, 1), stride=2, bias=False
     ).to(cuda_device)
@@ -162,6 +156,86 @@ def test_normalized_transpose_reuses_forward_inverse_relation(
     assert torch.equal(restored.coords, x.coords)
 
 
+def test_target_transpose_matches_indexed_geometry(cuda_device) -> None:
+    source = _line(device=cuda_device, stride=(2, 1, 1))
+    target = SparseTensor(
+        feats=torch.zeros((5, 1), device=cuda_device),
+        coords=torch.tensor(
+            [[0, index, 0, 0] for index in range(5)],
+            dtype=torch.int32,
+            device=cuda_device,
+        ),
+        stride=1,
+        spatial_range=(1, 5, 1, 1),
+    )
+    module = spnn.ConvTranspose3d(
+        1,
+        1,
+        kernel_size=(3, 1, 1),
+        stride=(2, 1, 1),
+        padding=(1, 0, 0),
+        bias=False,
+    ).to(cuda_device)
+    with torch.no_grad():
+        module.kernel.copy_(
+            torch.tensor([1.0, 2.0, 3.0], device=cuda_device).reshape(3, 1, 1)
+        )
+
+    out = module(source, target)
+
+    assert torch.equal(out.coords, target.coords)
+    torch.testing.assert_close(
+        out.feats,
+        torch.tensor([[2.0], [5.0], [4.0], [9.0], [6.0]], device=cuda_device),
+    )
+
+
+def test_normalized_target_transpose_matches_weight_norm_and_gradients(
+    cuda_device,
+) -> None:
+    source = _line(
+        device=cuda_device, stride=(2, 1, 1), requires_grad=True
+    )
+    target = SparseTensor(
+        feats=torch.zeros((5, 1), device=cuda_device),
+        coords=torch.tensor(
+            [[0, index, 0, 0] for index in range(5)],
+            dtype=torch.int32,
+            device=cuda_device,
+        ),
+        stride=1,
+        spatial_range=(1, 5, 1, 1),
+    )
+    weight = torch.tensor(
+        [[[1.0]], [[2.0]], [[3.0]]],
+        device=cuda_device,
+        requires_grad=True,
+    )
+    kwargs = {
+        "kernel_size": (3, 1, 1),
+        "stride": (2, 1, 1),
+        "padding": (1, 0, 0),
+        "transposed": True,
+        "coordinates": target,
+        "training": True,
+    }
+
+    actual = F.normalized_conv3d(source, weight, **kwargs)
+    numerator = F.conv3d(source, weight, **kwargs)
+    denominator = F.conv3d(
+        source.replace(feats=torch.ones_like(source.feats)),
+        weight.square(),
+        **kwargs,
+    )
+    expected = numerator.feats / torch.sqrt(denominator.feats + 1e-8)
+    torch.testing.assert_close(actual.feats, expected)
+
+    actual.feats.sum().backward()
+    assert source.feats.grad is not None
+    assert weight.grad is not None
+    assert torch.count_nonzero(weight.grad).item() > 0
+
+
 def test_normalized_convolution_rejects_nonpositive_eps() -> None:
-    with pytest.raises(ValueError, match='eps must be positive'):
+    with pytest.raises(ValueError, match="eps must be positive"):
         spnn.NormalizedSubmConv3d(1, 1, eps=0.0)

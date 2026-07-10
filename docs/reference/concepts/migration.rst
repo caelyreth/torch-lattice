@@ -89,6 +89,9 @@ semantics. Do not mechanically replace every old ``torchsparse.nn.Conv3d`` with
      - ``ConvTranspose3d`` or ``GenerativeConvTranspose3d``
      - Pick based on whether the operation consumes an existing relation or
        generates output support.
+   * - Minkowski transpose convolution called with a coordinate map key
+     - ``ConvTranspose3d(...)(x, target)`` or its normalized/generative variant
+     - Evaluate the indexed transpose relation on exact caller-owned support.
    * - Convolution at known output coordinates
      - ``Conv3d(...)(x, coordinates=target)``
      - The target support is part of the caller's graph state, while parameter

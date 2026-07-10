@@ -36,6 +36,12 @@ head layout. Target support is an execution input, not a distinct module family;
 the same weights and convolution attributes are used for generated and explicit
 support.
 
+Transpose modules use the same rule. Calling ``up(source, target)`` evaluates
+only on the target support, while ``up(source)`` follows the ordinary inverse or
+generative support policy. Target transpose geometry is defined by
+``target = source * stride + offset * dilation - padding`` and is shared with
+MLX Lattice artifact replay.
+
 Weight-normalized convolution
 -----------------------------
 

@@ -11,6 +11,7 @@ from torch_lattice.utils import make_ntuple
 from ..relation import (
     build_pool_output_coords,
     build_target_out_in_map,
+    build_target_transposed_out_in_map,
     gather_scatter_kmap_from_out_in_map,
 )
 from .func.fetch_on_demand import (
@@ -60,6 +61,20 @@ def conv3d(
         coordinates=coordinates,
     )
     resolved = _resolved_config(config, training=training)
+
+    if coordinates is not None and transposed:
+        return _target_transposed_convolution(
+            input,
+            coordinates,
+            weight,
+            bias,
+            kernel_size=size,
+            stride=step,
+            padding=pad,
+            dilation=spacing,
+            config=resolved,
+            training=training,
+        )
 
     if coordinates is not None:
         return _target_convolution(
@@ -203,9 +218,7 @@ def normalized_conv3d(
     if numerator.coords.shape != denominator.coords.shape or not torch.equal(
         numerator.coords, denominator.coords
     ):
-        raise RuntimeError(
-            "normalized convolution passes produced different support"
-        )
+        raise RuntimeError("normalized convolution passes produced different support")
     features = numerator.feats / torch.sqrt(denominator.feats + eps)
     if bias is not None:
         features = features + bias
@@ -552,6 +565,79 @@ def _target_convolution(
     return target.replace(feats=feats)
 
 
+def _target_transposed_convolution(
+    input: SparseTensor,
+    target: SparseTensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None,
+    *,
+    kernel_size: Triple,
+    stride: Triple,
+    padding: Triple,
+    dilation: Triple,
+    config,
+    training: bool,
+) -> SparseTensor:
+    from torch_lattice.nn import functional as F
+
+    expected_stride = tuple(input.stride[index] // stride[index] for index in range(3))
+    if any(input.stride[index] % stride[index] for index in range(3)):
+        raise ValueError("transposed stride must divide the input sparse stride")
+    if target.stride != expected_stride:
+        raise ValueError(
+            f"target stride {target.stride} does not match transpose output "
+            f"stride {expected_stride}"
+        )
+    weight = _kernel_weight(weight, kernel_size)
+    target_config = config.copy()
+    target_config.dataflow = F.Dataflow.GatherScatter
+    target_config.ifsort = False
+    execution = _execution_key(target_config, training=training)
+    shared_manager = input.coord_manager is target.coord_manager
+    relation_key = (
+        RelationKey(
+            input.coord_key,
+            target.coord_key,
+            "target_conv_transpose3d",
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            execution,
+        )
+        if shared_manager
+        else None
+    )
+    kmap = (
+        input.coord_manager.relation(relation_key) if relation_key is not None else None
+    )
+    if kmap is None:
+        relation = build_target_transposed_out_in_map(
+            input.coords,
+            target.coords,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+        )
+        kmap = gather_scatter_kmap_from_out_in_map(
+            relation,
+            input_size=int(input.feats.shape[0]),
+        )
+        if relation_key is not None:
+            input.coord_manager.set_relation(relation_key, kmap)
+    feats = GatherScatterConvolutionFuntion.apply(
+        input.feats,
+        weight,
+        kmap,
+        target_config,
+        False,
+    )
+    if bias is not None:
+        feats = feats + bias
+    return target.replace(feats=feats)
+
+
 def _dispatch(config):
     from torch_lattice.nn import functional as F
 
@@ -607,8 +693,8 @@ def _validate_convolution_modes(
         raise ValueError("submanifold convolution requires stride=1")
     if generative and not transposed:
         raise ValueError("generative convolution must be transposed")
-    if coordinates is not None and (transposed or generative):
-        raise ValueError("explicit coordinates are only supported by forward Conv3d")
+    if coordinates is not None and subm:
+        raise ValueError("submanifold convolution cannot consume target support")
 
 
 def _kernel_weight(weight: torch.Tensor, kernel_size: Triple) -> torch.Tensor:
