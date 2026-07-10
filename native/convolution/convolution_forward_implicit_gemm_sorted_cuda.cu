@@ -171,8 +171,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting1_mode1_f16f16f32
               "{%0, %1, %2, %3}, [%4];"
               : "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[0]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[1]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[2]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[3])
               : "r"(addr));
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
         }
       }
@@ -189,8 +187,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting1_mode1_f16f16f32
             "{%0, %1, %2, %3}, [%4];"
             : "=r"(((unsigned *)(B_shared_warp + 0))[0]), "=r"(((unsigned *)(B_shared_warp + 0))[1]), "=r"(((unsigned *)(B_shared_warp + 0))[2]), "=r"(((unsigned *)(B_shared_warp + 0))[3])
             : "r"(addr));
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
       }
       for (int i0_0_3 = 0; i0_0_3 < 4; ++i0_0_3)
@@ -243,8 +239,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting1_mode1_f16f16f32
               : "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3])
               : "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[0]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[1]), "r"(((unsigned *)(B_shared_warp + 6))[0]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3]));
         }
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
       }
     }
@@ -399,8 +393,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting2_mode1_f16f16f32
                 "{%0, %1, %2, %3}, [%4];"
                 : "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[0]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[1]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[2]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[3])
                 : "r"(addr));
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
           }
         }
@@ -417,8 +409,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting2_mode1_f16f16f32
               "{%0, %1, %2, %3}, [%4];"
               : "=r"(((unsigned *)(B_shared_warp + 0))[0]), "=r"(((unsigned *)(B_shared_warp + 0))[1]), "=r"(((unsigned *)(B_shared_warp + 0))[2]), "=r"(((unsigned *)(B_shared_warp + 0))[3])
               : "r"(addr));
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
         }
         for (int i0_0_3 = 0; i0_0_3 < 4; ++i0_0_3)
@@ -469,8 +459,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting2_mode1_f16f16f32
                 : "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3])
                 : "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[0]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[1]), "r"(((unsigned *)(B_shared_warp + 6))[0]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3]));
           }
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
         }
       }
@@ -626,8 +614,6 @@ __global__ void __launch_bounds__(128) conv_forward_cuda_setting3_mode1_f16f16f3
                 "{%0, %1, %2, %3}, [%4];"
                 : "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[0]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[1]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[2]), "=r"(((unsigned *)(A_shared_warp + (ax0_0 * 8)))[3])
                 : "r"(addr));
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
           }
         }
@@ -645,8 +631,6 @@ __global__ void __launch_bounds__(128) conv_forward_cuda_setting3_mode1_f16f16f3
                 "{%0, %1, %2, %3}, [%4];"
                 : "=r"(((unsigned *)(B_shared_warp + (ax1_0 * 8)))[0]), "=r"(((unsigned *)(B_shared_warp + (ax1_0 * 8)))[1]), "=r"(((unsigned *)(B_shared_warp + (ax1_0 * 8)))[2]), "=r"(((unsigned *)(B_shared_warp + (ax1_0 * 8)))[3])
                 : "r"(addr));
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
           }
         }
@@ -699,8 +683,6 @@ __global__ void __launch_bounds__(128) conv_forward_cuda_setting3_mode1_f16f16f3
                   : "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[0]), "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[1]), "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[2]), "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[3])
                   : "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[0]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[1]), "r"(((unsigned *)(B_shared_warp + ((i1_0_4 * 8) + 6)))[0]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[0]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[1]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[2]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[3]));
             }
-#else
-  #pragma message("FP16 kernels will not be compiled for SM75-.")
 #endif
           }
         }
@@ -922,8 +904,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting1_mode1_tf32tf32f
               : "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3])
               : "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[0]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[1]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[2]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[3]), "r"(((unsigned *)(B_shared_warp + 6))[0]), "r"(((unsigned *)(B_shared_warp + 6))[1]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3]));
         }
-#else
-  #pragma message("TF32 kernels will not be compiled.")
 #endif  
       }
     }
@@ -1109,8 +1089,6 @@ __global__ void __launch_bounds__(64) conv_forward_cuda_setting2_mode1_tf32tf32f
                 : "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "=f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3])
                 : "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[0]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[1]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[2]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[3]), "r"(((unsigned *)(B_shared_warp + 6))[0]), "r"(((unsigned *)(B_shared_warp + 6))[1]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[0]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[1]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[2]), "f"(((float *)(C_warp + ((i0_0_3 * 8) + 4)))[3]));
           }
-#else
-  #pragma message("TF32 kernels will not be compiled.")
 #endif
         }
       }
@@ -1298,8 +1276,6 @@ __global__ void __launch_bounds__(128) conv_forward_cuda_setting3_mode1_tf32tf32
                   : "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[0]), "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[1]), "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[2]), "=f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[3])
                   : "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[0]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[1]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[2]), "r"(((unsigned *)(A_shared_warp + ((i0_0_3 * 8) + 4)))[3]), "r"(((unsigned *)(B_shared_warp + ((i1_0_4 * 8) + 6)))[0]), "r"(((unsigned *)(B_shared_warp + ((i1_0_4 * 8) + 6)))[1]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[0]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[1]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[2]), "f"(((float *)(C_warp + (((i0_0_3 * 16) + (i1_0_4 * 8)) + 4)))[3]));
             }
-#else
-  #pragma message("TF32 kernels will not be compiled.")
 #endif 
           }
         }

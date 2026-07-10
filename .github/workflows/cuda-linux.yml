@@ -74,7 +74,7 @@ jobs:
           ninja --version
 
       - name: Restore native build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .ccache
           key: ${{ runner.os }}-cuda-${{ env.CUDA_VERSION }}-ccache-${{ hashFiles('CMakeLists.txt', 'pyproject.toml', 'native/**') }}
@@ -103,7 +103,7 @@ jobs:
           rm -rf wheelhouse
           mkdir -p wheelhouse
           uvx auditwheel repair \
-            --plat manylinux_2_38_x86_64 \
+            --plat manylinux_2_34_x86_64 \
             --exclude libc10.so \
             --exclude libc10_cuda.so \
             --exclude libcudart.so.12 \
@@ -111,6 +111,7 @@ jobs:
             --exclude libcublasLt.so.12 \
             --exclude libcudnn.so.9 \
             --exclude libcufft.so.11 \
+            --exclude libgomp.so.1 \
             --exclude libcurand.so.10 \
             --exclude libcusolver.so.11 \
             --exclude libcusparse.so.12 \

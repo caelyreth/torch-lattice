@@ -620,8 +620,13 @@ def _training_case(*, dtype, kmap_mode, fusion, subm):
         dim=1,
     )
     spatial_range = (1, side, side, side)
-    features = torch.randn(grid.shape[0], 8, device="cuda", dtype=dtype)
-    weight = torch.randn(27, 8, 8, device="cuda", dtype=dtype)
+    generator = torch.Generator(device="cuda").manual_seed(20260710)
+    features = torch.randn(
+        grid.shape[0], 8, device="cuda", dtype=dtype, generator=generator
+    )
+    weight = torch.randn(
+        27, 8, 8, device="cuda", dtype=dtype, generator=generator
+    )
     stride = 1 if subm else 2
 
     def run(dataflow):

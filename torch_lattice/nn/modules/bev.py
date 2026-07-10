@@ -113,6 +113,7 @@ class ToDenseBEVConvolution(nn.Module):
             indices.unsqueeze(dim=0),
             feats,
             torch.Size([batch_size * int(self.bev_shape.prod()), feats.size(-1)]),
+            check_invariants=False,
         ).to_dense()
         output = output.view(batch_size, *self.bev_shape, -1)
         output = output.permute(0, 3, 1, 2).contiguous()
@@ -169,7 +170,9 @@ class ToBEVConvolution(nn.Module):
             ratio = torch.tensor(ratio, dtype=coords.dtype, device=coords.device)
             coords[1:] = torch.div(coords[1:], ratio[:, None], rounding_mode="trunc")
             coords[1:] *= ratio[:, None]
-        flatten = torch.sparse_coo_tensor(coords, feats).coalesce()
+        flatten = torch.sparse_coo_tensor(
+            coords, feats, check_invariants=False
+        ).coalesce()
         return SparseTensor(flatten.values(), flatten.indices().t().int(), ratio)
 
 
@@ -238,6 +241,7 @@ class ToBEVHeightCompression(nn.Module):
             indices.unsqueeze(dim=0),
             feats,
             torch.Size([batch_size * int(self.shape.prod()), feats.size(-1)]),
+            check_invariants=False,
         ).to_dense()
         output = output.view(batch_size, *self.bev_shape.cpu().numpy(), -1)
         output = output.permute(0, 3, 1, 2).contiguous()

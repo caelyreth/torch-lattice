@@ -810,8 +810,6 @@ __global__ void fetch_on_demand_gemm_fp16_4_once(
       }
     }
   }
-#else
-  #pragma message("FP16 kernels will not be compiled.")
 #endif
 }
 
@@ -926,8 +924,6 @@ __global__ void fetch_on_demand_gemm_fp16_2(
       }
     }
   }
-#else
-  #pragma message("TF32 kernels will not be compiled.")
 #endif
 }
 
@@ -1040,8 +1036,6 @@ __global__ void fetch_on_demand_gemm_fp16_1(
       // }
     }
   }
-#else
-  #pragma message("FP16 kernels will not be compiled.")
 #endif
 }
 
@@ -1155,8 +1149,6 @@ __global__ void fetch_on_demand_gemm_no_fusion_fp16_1(
       // }
     }
   }
-#else
-  #pragma message("FP16 kernels will not be compiled.")
 #endif
 }
 
@@ -1317,8 +1309,6 @@ __global__ void fetch_on_demand_gemm_tf32(
       }
     }
   }
-#else
-  #pragma message("TF32 kernels will not be compiled.")
 #endif
 }
 
@@ -1475,8 +1465,6 @@ __global__ void fetch_on_demand_gemm_no_fusion_tf32(
       }
     }
   }
-#else
-  #pragma message("TF32 kernels will not be compiled.")
 #endif
 }
 ////////////////////////////// CUDA_ARCH >= 800 for TF32 ///////////////////////////////////
@@ -1627,8 +1615,6 @@ __global__ void fetch_on_demand_gemm_fp16_tc4(
       }
     }
   }
-#else
-  #pragma message("FP16 kernels will not be compiled.")
 #endif
 }
 
@@ -1804,8 +1790,6 @@ __global__ void fetch_on_demand_gemm_fp16_tc4_async(
       }
     }
   }
-#else
-  #pragma message("FP16 kernels with asynchronous copy will not be compiled.")
 #endif
 }
 
@@ -1955,8 +1939,6 @@ __global__ void fetch_on_demand_gemm_no_fusion_fp16(
       }
     }
   }
-#else
-  #pragma message("FP16 kernels will not be compiled.")
 #endif
 }
 ///////////////////////////////// CUDA_ARCH >= 700 ///////////////////////////////////
