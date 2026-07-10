@@ -26,7 +26,7 @@ from .func.implicit_gemm import (
     implicit_gemm_forward_no_grad,
 )
 
-__all__ = ["conv3d"]
+__all__ = ["conv3d", "normalized_conv3d"]
 
 Triple = tuple[int, int, int]
 
@@ -150,6 +150,66 @@ def conv3d(
         training=training,
         convolution=convolution,
     )
+
+
+def normalized_conv3d(
+    input: SparseTensor,
+    weight: torch.Tensor,
+    kernel_size: int | Sequence[int],
+    bias: torch.Tensor | None = None,
+    stride: int | Sequence[int] = 1,
+    padding: int | Sequence[int] = 0,
+    dilation: int | Sequence[int] = 1,
+    config=None,
+    subm: bool = False,
+    transposed: bool = False,
+    generative: bool = False,
+    training: bool = False,
+    coordinates: SparseTensor | None = None,
+    eps: float = 1e-8,
+) -> SparseTensor:
+    """Apply weight-normalized sparse convolution.
+
+    Non-pointwise kernels compute ``conv(input, weight)`` and divide by
+    ``sqrt(conv(ones, weight.square()) + eps)`` before applying bias. Both
+    passes use the same coordinate manager and therefore reuse cached kernel
+    relations. Pointwise kernels intentionally use ordinary matrix
+    multiplication, matching the source normalized-convolution contract.
+    """
+    size = _triple(kernel_size)
+    step = _triple(stride)
+    pad = _triple(padding)
+    spacing = _triple(dilation)
+    if eps <= 0:
+        raise ValueError("eps must be positive")
+    kwargs = {
+        "kernel_size": size,
+        "stride": step,
+        "padding": pad,
+        "dilation": spacing,
+        "config": config,
+        "subm": subm,
+        "transposed": transposed,
+        "generative": generative,
+        "training": training,
+        "coordinates": coordinates,
+    }
+    if _is_pointwise(size, step, pad, spacing):
+        return conv3d(input, weight, bias=bias, **kwargs)
+
+    numerator = conv3d(input, weight, **kwargs)
+    unit = input.replace(feats=torch.ones_like(input.feats))
+    denominator = conv3d(unit, weight.square(), **kwargs)
+    if numerator.coords.shape != denominator.coords.shape or not torch.equal(
+        numerator.coords, denominator.coords
+    ):
+        raise RuntimeError(
+            "normalized convolution passes produced different support"
+        )
+    features = numerator.feats / torch.sqrt(denominator.feats + eps)
+    if bias is not None:
+        features = features + bias
+    return numerator.replace(feats=features)
 
 
 def _forward_native_convolution(

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
 
@@ -15,7 +14,11 @@ from torch_lattice_bench.cases.common import (
     fresh_sparse,
     set_conv_config,
 )
-from torch_lattice_bench.datasets import SparseFixture, params_matrix, sparse_fixture
+from torch_lattice_bench.datasets import (
+    SparseFixture,
+    params_matrix,
+    sparse_fixture,
+)
 from torch_lattice_bench.harness import BenchmarkCase, SkipCase
 
 
@@ -66,21 +69,22 @@ def cases(
                 kwargs,
                 min_extent,
                 subm,
+                normalized,
             ),
             prepare=_prepare,
             run=_run_conv,
             metrics=_conv_metrics,
             units=("elements",),
         )
-        for name, dataflow, kwargs, kernel_size, stride, min_extent, subm in _specs()
+        for name, dataflow, kwargs, kernel_size, stride, min_extent, subm, normalized in _specs()
     )
 
 
 def _specs() -> tuple[
-    tuple[str, F.Dataflow | None, dict[str, Any], int, int, int, bool], ...
+    tuple[str, F.Dataflow | None, dict[str, Any], int, int, int, bool, bool], ...
 ]:
     return (
-        ("conv1x1_matmul", None, {}, 1, 1, 1, False),
+        ("conv1x1_matmul", None, {}, 1, 1, 1, False, False),
         (
             "conv3_implicit_gemm_unsorted",
             F.Dataflow.ImplicitGEMM,
@@ -88,6 +92,7 @@ def _specs() -> tuple[
             3,
             1,
             1,
+            False,
             False,
         ),
         (
@@ -98,6 +103,7 @@ def _specs() -> tuple[
             1,
             1,
             False,
+            False,
         ),
         (
             "conv3_fetch_on_demand_fused",
@@ -106,6 +112,7 @@ def _specs() -> tuple[
             3,
             1,
             1,
+            False,
             False,
         ),
         (
@@ -116,6 +123,7 @@ def _specs() -> tuple[
             1,
             1,
             False,
+            False,
         ),
         (
             "conv3_gather_scatter",
@@ -124,6 +132,7 @@ def _specs() -> tuple[
             3,
             1,
             1,
+            False,
             False,
         ),
         (
@@ -134,6 +143,7 @@ def _specs() -> tuple[
             2,
             2,
             False,
+            False,
         ),
         (
             "subm3_implicit_gemm_unsorted",
@@ -142,6 +152,17 @@ def _specs() -> tuple[
             3,
             1,
             1,
+            True,
+            False,
+        ),
+        (
+            "normalized_subm3_gather_scatter",
+            F.Dataflow.GatherScatter,
+            {"ifsort": False, "split_mask_num": 1},
+            3,
+            1,
+            1,
+            True,
             True,
         ),
     )
@@ -155,11 +176,15 @@ def _setup_factory(
     kwargs: dict[str, Any],
     min_extent: int,
     subm: bool,
+    normalized: bool,
 ) -> Callable[[dict[str, object]], ConvFixture]:
     def setup(params: dict[str, object]) -> ConvFixture:
         base = sparse_fixture(params, device=device)
         if subm:
-            module = spnn.SubmConv3d(
+            module_type = (
+                spnn.NormalizedSubmConv3d if normalized else spnn.SubmConv3d
+            )
+            module = module_type(
                 base.channels,
                 base.channels,
                 kernel_size=kernel_size,

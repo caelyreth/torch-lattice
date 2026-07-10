@@ -35,16 +35,16 @@ ValueKind = Literal["sparse_tensor", "dense_tensor"]
 
 @dataclass(frozen=True)
 class ModuleLowering:
-    fn: Callable[..., "ArtifactValue"]
+    fn: Callable[..., ArtifactValue]
     arities: frozenset[int]
 
     def lower(
         self,
-        builder: "TorchLatticeArtifactBuilder",
+        builder: TorchLatticeArtifactBuilder,
         name: str,
         module: nn.Module,
-        inputs: tuple["ArtifactValue", ...],
-    ) -> "ArtifactValue":
+        inputs: tuple[ArtifactValue, ...],
+    ) -> ArtifactValue:
         if len(inputs) not in self.arities:
             expected = " or ".join(str(value) for value in sorted(self.arities))
             raise ValueError(
@@ -334,6 +334,26 @@ class TorchLatticeArtifactBuilder:
         )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
+    @module_lowering(spnn.NormalizedSubmConv3d)
+    def normalized_subm_conv3d(
+        self,
+        name: str,
+        module: spnn.NormalizedSubmConv3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        self._require_dense_normalized_weights(module)
+        out = self._builder.normalized_subm_conv3d(
+            **self._conv_args(
+                name,
+                module,
+                input,
+                relation_order=any(value != 1 for value in module.dilation),
+            ),
+            dilation=_triple(module.dilation),
+            eps=module.eps,
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
     @module_lowering(spnn.ConvTranspose3d)
     def conv_transpose3d(
         self,
@@ -349,6 +369,23 @@ class TorchLatticeArtifactBuilder:
         )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
+    @module_lowering(spnn.NormalizedConvTranspose3d)
+    def normalized_conv_transpose3d(
+        self,
+        name: str,
+        module: spnn.NormalizedConvTranspose3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        self._require_dense_normalized_weights(module)
+        out = self._builder.normalized_conv_transpose3d(
+            **self._conv_args(name, module, input),
+            stride=_triple(module.stride),
+            padding=_triple(module.padding),
+            dilation=_triple(module.dilation),
+            eps=module.eps,
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
     @module_lowering(spnn.GenerativeConvTranspose3d)
     def generative_conv_transpose3d(
         self,
@@ -359,6 +396,21 @@ class TorchLatticeArtifactBuilder:
         out = self._builder.generative_conv_transpose3d(
             **self._conv_args(name, module, input),
             stride=_triple(module.stride),
+        )
+        return ArtifactValue(out, "sparse_tensor", module.out_channels)
+
+    @module_lowering(spnn.NormalizedGenerativeConvTranspose3d)
+    def normalized_generative_conv_transpose3d(
+        self,
+        name: str,
+        module: spnn.NormalizedGenerativeConvTranspose3d,
+        input: ArtifactValue,
+    ) -> ArtifactValue:
+        self._require_dense_normalized_weights(module)
+        out = self._builder.normalized_generative_conv_transpose3d(
+            **self._conv_args(name, module, input),
+            stride=_triple(module.stride),
+            eps=module.eps,
         )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
 
@@ -1109,6 +1161,13 @@ class TorchLatticeArtifactBuilder:
 
     def _require_sparse(self, value: ArtifactValue, module: nn.Module) -> None:
         self._require_sparse_name(value, type(module).__name__)
+
+    def _require_dense_normalized_weights(self, module: nn.Module) -> None:
+        if self.quantize_bits is not None:
+            raise ValueError(
+                f"{type(module).__name__} artifact export does not support "
+                "packed weights because normalization depends on weight squares."
+            )
 
     def _require_sparse_name(self, value: ArtifactValue, name: str) -> None:
         if value.kind != "sparse_tensor":

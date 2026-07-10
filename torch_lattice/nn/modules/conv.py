@@ -12,9 +12,12 @@ from torch_lattice.utils import make_ntuple
 
 __all__ = [
     "Conv3d",
-    "SubmConv3d",
     "ConvTranspose3d",
     "GenerativeConvTranspose3d",
+    "NormalizedConvTranspose3d",
+    "NormalizedGenerativeConvTranspose3d",
+    "NormalizedSubmConv3d",
+    "SubmConv3d",
 ]
 
 
@@ -32,6 +35,8 @@ class _BaseConv3d(nn.Module):
         subm: bool = False,
         transposed: bool = False,
         generative: bool = False,
+        normalized: bool = False,
+        eps: float = 1e-8,
         config: Mapping | None = None,
     ) -> None:
         super().__init__()
@@ -44,6 +49,10 @@ class _BaseConv3d(nn.Module):
         self.subm = bool(subm)
         self.transposed = bool(transposed)
         self.generative = bool(generative)
+        self.normalized = bool(normalized)
+        if eps <= 0:
+            raise ValueError("eps must be positive")
+        self.eps = float(eps)
 
         if self.subm:
             if self.transposed or self.generative:
@@ -99,7 +108,8 @@ class _BaseConv3d(nn.Module):
         *,
         coordinates: SparseTensor | None = None,
     ) -> SparseTensor:
-        return F.conv3d(
+        convolution = F.normalized_conv3d if self.normalized else F.conv3d
+        return convolution(
             input,
             weight=self.kernel,
             kernel_size=self.kernel_size,
@@ -113,6 +123,7 @@ class _BaseConv3d(nn.Module):
             config=self._config,
             training=self.training,
             coordinates=coordinates,
+            **({"eps": self.eps} if self.normalized else {}),
         )
 
 
@@ -167,6 +178,35 @@ class SubmConv3d(_BaseConv3d):
         )
 
 
+class NormalizedSubmConv3d(SubmConv3d):
+    """Weight-normalized convolution on input coordinate support."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | Sequence[int] = 3,
+        dilation: int | Sequence[int] = 1,
+        bias: bool = False,
+        eps: float = 1e-8,
+        config: Mapping | None = None,
+    ) -> None:
+        _BaseConv3d.__init__(
+            self,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=1,
+            padding=0,
+            dilation=dilation,
+            bias=bias,
+            subm=True,
+            normalized=True,
+            eps=eps,
+            config=config,
+        )
+
+
 class ConvTranspose3d(_BaseConv3d):
     """Sparse transposed 3D convolution using an existing inverse support map."""
 
@@ -190,6 +230,37 @@ class ConvTranspose3d(_BaseConv3d):
             dilation,
             bias,
             transposed=True,
+            config=config,
+        )
+
+
+class NormalizedConvTranspose3d(ConvTranspose3d):
+    """Weight-normalized sparse transpose convolution."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | Sequence[int] = 3,
+        stride: int | Sequence[int] = 1,
+        padding: int | Sequence[int] = 0,
+        dilation: int | Sequence[int] = 1,
+        bias: bool = False,
+        eps: float = 1e-8,
+        config: Mapping | None = None,
+    ) -> None:
+        _BaseConv3d.__init__(
+            self,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            bias,
+            transposed=True,
+            normalized=True,
+            eps=eps,
             config=config,
         )
 
@@ -218,5 +289,37 @@ class GenerativeConvTranspose3d(_BaseConv3d):
             bias,
             transposed=True,
             generative=True,
+            config=config,
+        )
+
+
+class NormalizedGenerativeConvTranspose3d(GenerativeConvTranspose3d):
+    """Weight-normalized transpose convolution with generated support."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | Sequence[int] = 3,
+        stride: int | Sequence[int] = 1,
+        padding: int | Sequence[int] = 0,
+        dilation: int | Sequence[int] = 1,
+        bias: bool = False,
+        eps: float = 1e-8,
+        config: Mapping | None = None,
+    ) -> None:
+        _BaseConv3d.__init__(
+            self,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            bias,
+            transposed=True,
+            generative=True,
+            normalized=True,
+            eps=eps,
             config=config,
         )

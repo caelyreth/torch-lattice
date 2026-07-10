@@ -2,22 +2,21 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 import torch
+import torch_lattice
 from safetensors.torch import save_file
 from torch import nn
-
-import torch_lattice
 from torch_lattice import SparseTensor
 from torch_lattice import nn as spnn
 from torch_lattice.artifact import (
     LatticeModelArtifactOptions,
     TorchLatticeArtifactBuilder,
-    save_lattice_model_artifact,
     lower_fx_artifact,
+    save_lattice_model_artifact,
 )
 from torch_lattice.nn.functional.conv import Dataflow, conv_config
 
@@ -37,6 +36,7 @@ def main() -> None:
         "quantized_classifier_int4",
         "transpose_convolution",
         "generative_transpose_convolution",
+        "normalized_convolution",
     ]
     _sparse_classifier(ROOT / "sparse_classifier")
     _target_branch(ROOT / "target_branch")
@@ -45,6 +45,7 @@ def main() -> None:
     _quantized_classifier(ROOT / "quantized_classifier_int4", bits=4)
     _transpose_convolution(ROOT / "transpose_convolution")
     _generative_transpose_convolution(ROOT / "generative_transpose_convolution")
+    _normalized_convolution(ROOT / "normalized_convolution")
     (ROOT / "manifest.json").write_text(
         json.dumps({"cases": cases}, indent=2),
         encoding="utf-8",
@@ -165,6 +166,17 @@ class GenerativeTransposeConvolution(nn.Module):
 
     def forward(self, x: SparseTensor) -> SparseTensor:
         return self.act(self.up(x))
+
+
+class NormalizedConvolution(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = spnn.NormalizedSubmConv3d(
+            2, 3, kernel_size=(3, 1, 1), bias=True
+        )
+
+    def forward(self, x: SparseTensor) -> SparseTensor:
+        return self.conv(x)
 
 
 def _sparse_classifier(case_dir: Path) -> None:
@@ -328,6 +340,29 @@ def _generative_transpose_convolution(case_dir: Path) -> None:
         stride=(2, 1, 1),
     )
     expected = _generative_transpose_reference(model, x)
+    save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
+    _save_sparse_inputs(case_dir, "x", x)
+    _save_sparse_expected(case_dir, expected)
+
+
+def _normalized_convolution(case_dir: Path) -> None:
+    case_dir.mkdir()
+    model = NormalizedConvolution().eval()
+    x = _transpose_input()
+    with torch.no_grad():
+        model.conv.kernel.copy_(
+            torch.tensor(
+                [
+                    [[0.2, -0.4, 0.1], [0.3, 0.5, -0.2]],
+                    [[-0.1, 0.6, 0.4], [0.7, -0.3, 0.2]],
+                    [[0.5, 0.2, -0.6], [-0.4, 0.1, 0.8]],
+                ]
+            )
+        )
+        model.conv.bias.copy_(torch.tensor([0.05, -0.02, 0.03]))
+    model, x_eval = _cuda_eval_pair(model, x)
+    with _conv_dataflow(Dataflow.GatherScatter):
+        expected = model(x_eval).cpu()
     save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
     _save_sparse_inputs(case_dir, "x", x)
     _save_sparse_expected(case_dir, expected)

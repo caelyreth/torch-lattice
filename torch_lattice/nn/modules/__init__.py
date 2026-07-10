@@ -1,11 +1,19 @@
-from .activation import GELU, LeakyReLU, ReLU, SiLU, Sigmoid, Softplus, Tanh
+from .activation import GELU, LeakyReLU, ReLU, Sigmoid, SiLU, Softplus, Tanh
 from .bev import (
     ToBEVConvolution,
     ToBEVHeightCompression,
     ToBEVReduction,
     ToDenseBEVConvolution,
 )
-from .conv import Conv3d, ConvTranspose3d, GenerativeConvTranspose3d, SubmConv3d
+from .conv import (
+    Conv3d,
+    ConvTranspose3d,
+    GenerativeConvTranspose3d,
+    NormalizedConvTranspose3d,
+    NormalizedGenerativeConvTranspose3d,
+    NormalizedSubmConv3d,
+    SubmConv3d,
+)
 from .crop import SparseCrop
 from .norm import BatchNorm, GroupNorm, InstanceNorm, LayerNorm, RMSNorm
 from .pooling import (
@@ -19,11 +27,11 @@ from .pooling import (
 )
 
 __all__ = [
+    "GELU",
     "AvgPool3d",
     "BatchNorm",
     "Conv3d",
     "ConvTranspose3d",
-    "GELU",
     "GenerativeConvTranspose3d",
     "GlobalAvgPool",
     "GlobalMaxPool",
@@ -33,6 +41,9 @@ __all__ = [
     "LayerNorm",
     "LeakyReLU",
     "MaxPool3d",
+    "NormalizedConvTranspose3d",
+    "NormalizedGenerativeConvTranspose3d",
+    "NormalizedSubmConv3d",
     "Pool3d",
     "RMSNorm",
     "ReLU",

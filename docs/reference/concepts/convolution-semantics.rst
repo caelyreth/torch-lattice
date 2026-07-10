@@ -36,6 +36,24 @@ head layout. Target support is an execution input, not a distinct module family;
 the same weights and convolution attributes are used for generated and explicit
 support.
 
+Weight-normalized convolution
+-----------------------------
+
+``NormalizedSubmConv3d``, ``NormalizedConvTranspose3d``, and
+``NormalizedGenerativeConvTranspose3d`` preserve the support behavior of their
+corresponding convolution families. Non-pointwise kernels compute
+
+.. math::
+
+   Y = \frac{\operatorname{conv}(X, W)}
+            {\sqrt{\operatorname{conv}(\mathbf{1}, W^2) + \varepsilon}} + b.
+
+Both passes reuse the same coordinate relation. The denominator is part of the
+training graph, so gradients include its dependence on ``W``. Pointwise
+``1x1x1`` kernels bypass normalization and remain a matrix multiplication.
+Packed artifact weights are rejected for this family because squaring an
+affine-packed representation does not preserve that contract.
+
 Dataflows
 ---------
 
