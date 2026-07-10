@@ -1,6 +1,6 @@
 [project]
 name = "torch-lattice"
-version = "0.1.2"
+version = "0.2.0"
 description = "Sparse convolution library for modern PyTorch and CUDA."
 readme = "README.md"
 requires-python = ">=3.14"

@@ -1,6 +1,6 @@
 [project]
 name = "torch-lattice-conformance"
-version = "0.1.2"
+version = "0.2.0"
 description = "Cross-runtime fixture generation and migration conformance tools for torch-lattice"
 requires-python = ">=3.14"
 dependencies = [
