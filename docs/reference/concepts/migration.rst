@@ -102,6 +102,9 @@ semantics. Do not mechanically replace every old ``torchsparse.nn.Conv3d`` with
    * - ``MinkowskiPoolingTranspose(...)(x, coordinates=target)``
      - ``PoolTranspose3d(...)(x, target)``
      - Preserve target support and average all coarse contributors per row.
+   * - ``TrilinearUpsampler(in_channels=C, out_channels=C)``
+     - ``TrilinearUpsample3d(stride=2)``
+     - Use normalized separable interpolation on generated or target support.
 
 A useful check while porting is to compare coordinate counts before and after a
 layer. If the original layer was intended to keep exactly the same coordinate set,

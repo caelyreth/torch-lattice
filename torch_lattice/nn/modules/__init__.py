@@ -25,6 +25,7 @@ from .pooling import (
     Pool3d,
     PoolTranspose3d,
     SumPool3d,
+    TrilinearUpsample3d,
 )
 
 __all__ = [
@@ -60,4 +61,5 @@ __all__ = [
     "ToBEVHeightCompression",
     "ToBEVReduction",
     "ToDenseBEVConvolution",
+    "TrilinearUpsample3d",
 ]

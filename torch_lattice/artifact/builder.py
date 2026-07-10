@@ -508,6 +508,26 @@ class TorchLatticeArtifactBuilder:
         )
         return ArtifactValue(out, "sparse_tensor", input.channels)
 
+    @module_lowering(spnn.TrilinearUpsample3d, arity=(1, 2))
+    def trilinear_upsample3d(
+        self,
+        name: str,
+        module: spnn.TrilinearUpsample3d,
+        input: ArtifactValue,
+        target: ArtifactValue | None = None,
+    ) -> ArtifactValue:
+        self._require_sparse(input, module)
+        if target is not None:
+            self._require_sparse(target, module)
+        out = self._builder.trilinear_upsample3d(
+            input=input.value,
+            target=None if target is None else target.value,
+            stride=_triple(module.stride),
+            result_type=SparseTensorType(dtype=self.input_dtype),
+            result=_safe_value_name(name),
+        )
+        return ArtifactValue(out, "sparse_tensor", input.channels)
+
     def voxelize(
         self,
         name: str,

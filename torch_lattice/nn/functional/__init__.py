@@ -26,6 +26,7 @@ from .pooling import (
     pool3d,
     pool_transpose3d,
     sum_pool3d,
+    trilinear_upsample3d,
 )
 from .query import convert_transposed_out_in_map, sphashquery
 from .relation import (
@@ -75,5 +76,6 @@ __all__ = [
     "spvoxelize",
     "sum_pool3d",
     "transpose_kernel_map",
+    "trilinear_upsample3d",
     "voxelize",
 ]

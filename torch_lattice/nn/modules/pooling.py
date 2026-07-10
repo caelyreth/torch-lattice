@@ -17,6 +17,7 @@ __all__ = [
     "Pool3d",
     "PoolTranspose3d",
     "SumPool3d",
+    "TrilinearUpsample3d",
 ]
 
 
@@ -106,6 +107,21 @@ class PoolTranspose3d(nn.Module):
             padding=self.padding,
             dilation=self.dilation,
         )
+
+
+class TrilinearUpsample3d(nn.Module):
+    """Normalized trilinear upsampling on generated or target support."""
+
+    def __init__(self, stride=2) -> None:
+        super().__init__()
+        self.stride = stride
+
+    def forward(
+        self,
+        input: SparseTensor,
+        coordinates: SparseTensor | None = None,
+    ) -> SparseTensor:
+        return F.trilinear_upsample3d(input, coordinates, stride=self.stride)
 
 
 class GlobalAvgPool(nn.Module):

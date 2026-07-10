@@ -108,6 +108,12 @@ def cases(
         _pool_transpose_case(
             "pool_transpose_target_module", params, device, target=True
         ),
+        _trilinear_upsample_case(
+            "trilinear_upsample_generated_module", params, device, target=False
+        ),
+        _trilinear_upsample_case(
+            "trilinear_upsample_target_module", params, device, target=True
+        ),
     )
 
 
@@ -172,6 +178,37 @@ def _setup_pool_transpose(
     fine = fresh_sparse(base.tensor)
     coarse = spnn.AvgPool3d(kernel_size=2, stride=2)(fine)
     module = spnn.PoolTranspose3d(kernel_size=2, stride=2).to(device).eval()
+    return ModulePrepared(coarse, module, fine if target else None)
+
+
+def _trilinear_upsample_case(
+    name: str,
+    params,
+    device: torch.device,
+    *,
+    target: bool,
+) -> BenchmarkCase:
+    return BenchmarkCase(
+        name=name,
+        group="nn",
+        params=params,
+        setup=lambda p: _setup_trilinear_upsample(dict(p), device, target=target),
+        prepare=lambda fixture: fixture,
+        run=_run,
+        units=("elements",),
+    )
+
+
+def _setup_trilinear_upsample(
+    params: dict[str, object],
+    device: torch.device,
+    *,
+    target: bool,
+) -> ModulePrepared:
+    base = sparse_fixture(params, device=device)
+    fine = fresh_sparse(base.tensor)
+    coarse = spnn.AvgPool3d(kernel_size=2, stride=2)(fine)
+    module = spnn.TrilinearUpsample3d(stride=2).to(device).eval()
     return ModulePrepared(coarse, module, fine if target else None)
 
 

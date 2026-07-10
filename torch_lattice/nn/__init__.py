@@ -32,6 +32,7 @@ from .modules import (
     ToBEVHeightCompression,
     ToBEVReduction,
     ToDenseBEVConvolution,
+    TrilinearUpsample3d,
 )
 
 __all__ = [
@@ -68,4 +69,5 @@ __all__ = [
     "ToBEVReduction",
     "ToDenseBEVConvolution",
     "functional",
+    "TrilinearUpsample3d",
 ]

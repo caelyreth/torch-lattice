@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import product
 from typing import Literal
 
 import torch
@@ -24,6 +25,7 @@ __all__ = [
     "pool3d",
     "pool_transpose3d",
     "sum_pool3d",
+    "trilinear_upsample3d",
 ]
 
 PoolMode = Literal["sum", "max", "avg"]
@@ -138,6 +140,51 @@ def pool_transpose3d(
     return target.replace(feats=_pool_features(inputs.feats, relation, "avg"))
 
 
+def trilinear_upsample3d(
+    inputs: SparseTensor,
+    target: SparseTensor | None = None,
+    *,
+    stride=2,
+) -> SparseTensor:
+    """Upsample sparse features with normalized trilinear interpolation."""
+    step = make_ntuple(stride, ndim=3)
+    if any(inputs.stride[index] % step[index] for index in range(3)):
+        raise ValueError("upsample stride must divide the input sparse stride")
+    output_stride = tuple(inputs.stride[index] // step[index] for index in range(3))
+    size = tuple(2 * value - 1 for value in step)
+    pad = tuple(value - 1 for value in step)
+    if target is None:
+        target_coords = build_transposed_output_coords(
+            inputs.coords,
+            kernel_size=size,
+            stride=step,
+            padding=pad,
+        )
+        target = inputs.with_coordinates(
+            feats=inputs.feats.new_empty(
+                (target_coords.shape[0], inputs.feats.shape[1])
+            ),
+            coords=target_coords,
+            stride=output_stride,
+        )
+    elif target.stride != output_stride:
+        raise ValueError(
+            f"target stride {target.stride} does not match upsample output "
+            f"stride {output_stride}"
+        )
+    relation = build_target_transposed_out_in_map(
+        inputs.coords,
+        target.coords,
+        kernel_size=size,
+        stride=step,
+        padding=pad,
+    )
+    weights = _trilinear_weights(step, inputs.feats)
+    return target.replace(
+        feats=_weighted_pool_features(inputs.feats, relation, weights)
+    )
+
+
 def global_pool(
     inputs: SparseTensor,
     *,
@@ -230,6 +277,35 @@ def _pool_features(
     if torch.any(empty):
         output[empty] = 0
     return output
+
+
+def _weighted_pool_features(
+    feats: torch.Tensor,
+    relation: torch.Tensor,
+    weights: torch.Tensor,
+) -> torch.Tensor:
+    valid = relation >= 0
+    gathered = feats.index_select(
+        0, relation.clamp_min(0).reshape(-1).to(torch.long)
+    ).reshape(*relation.shape, feats.shape[1])
+    coefficients = valid.to(feats.dtype) * weights.unsqueeze(0)
+    summed = torch.sum(gathered * coefficients.unsqueeze(2), dim=1)
+    denominator = torch.sum(coefficients, dim=1, keepdim=True)
+    return torch.where(
+        denominator > 0,
+        summed / denominator.clamp_min(torch.finfo(feats.dtype).tiny),
+        summed,
+    )
+
+
+def _trilinear_weights(
+    stride: tuple[int, int, int], reference: torch.Tensor
+) -> torch.Tensor:
+    axes = tuple(
+        tuple(1.0 - abs(offset - (step - 1)) / step for offset in range(2 * step - 1))
+        for step in stride
+    )
+    return reference.new_tensor([x * y * z for x, y, z in product(*axes)])
 
 
 def _pooled_spatial_range(spatial_range, kernel_size, stride, padding, dilation):

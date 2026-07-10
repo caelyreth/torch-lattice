@@ -54,3 +54,32 @@ def test_pool_transpose_generates_support(selected_device: torch.device) -> None
     torch.testing.assert_close(
         out.feats, torch.tensor([[3.0], [3.0]], device=selected_device)
     )
+
+
+def test_trilinear_upsample_targets_support(selected_device: torch.device) -> None:
+    coarse = SparseTensor(
+        feats=torch.tensor([[2.0], [6.0]], device=selected_device, requires_grad=True),
+        coords=torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0]],
+            dtype=torch.int32,
+            device=selected_device,
+        ),
+        stride=(2, 1, 1),
+    )
+    target = SparseTensor(
+        feats=torch.zeros((4, 1), device=selected_device),
+        coords=torch.tensor(
+            [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]],
+            dtype=torch.int32,
+            device=selected_device,
+        ),
+    )
+
+    out = spnn.TrilinearUpsample3d(stride=(2, 1, 1))(coarse, target)
+
+    torch.testing.assert_close(
+        out.feats,
+        torch.tensor([[2.0], [4.0], [6.0], [6.0]], device=selected_device),
+    )
+    out.feats.sum().backward()
+    assert coarse.feats.grad is not None
