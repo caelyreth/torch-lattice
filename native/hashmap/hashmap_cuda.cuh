@@ -196,7 +196,7 @@ __global__ void lookup_kernel(key_type* table_keys, val_type* table_vals, const 
 }
 
 
-template <typename key_type=int64_t, typename val_type=int, bool odd>
+template <typename key_type=int64_t, typename val_type=int>
 __global__ void lookup_coords_kernel(
   key_type* table_keys, val_type* table_vals, int* coords, val_type* vals, 
   const int* kernel_sizes, const int* strides, 
@@ -210,25 +210,14 @@ __global__ void lookup_coords_kernel(
     int coords_out[4];
     coords_out[3] = in_coords[3];
     
-    if constexpr (odd) 
-    {
-      #pragma unroll
-      for(int i = 0; i <= 2; i++){
-        int cur_offset = _kernel_idx % kernel_sizes[i];
-        cur_offset -= (kernel_sizes[i] - 1) / 2;
-        coords_out[i] = in_coords[i] * strides[i] + cur_offset;
-        _kernel_idx /= kernel_sizes[i];
-      }
-    }
-    else
-    {
-      #pragma unroll
-      for(int i = 2; i >= 0; i--){
-        int cur_offset = _kernel_idx % kernel_sizes[i];
-        cur_offset -= (kernel_sizes[i] - 1) / 2;
-        coords_out[i] = in_coords[i] * strides[i] + cur_offset;
-        _kernel_idx /= kernel_sizes[i];
-      }
+    // Kernel rows are x/y/z positions with z varying fastest. Decode from
+    // the last spatial axis so every kernel shape shares one row convention.
+    #pragma unroll
+    for(int i = 2; i >= 0; i--){
+      int cur_offset = _kernel_idx % kernel_sizes[i];
+      cur_offset -= (kernel_sizes[i] - 1) / 2;
+      coords_out[i] = in_coords[i] * strides[i] + cur_offset;
+      _kernel_idx /= kernel_sizes[i];
     }
     
     if (idx < n)
@@ -284,14 +273,9 @@ void GPUHashTable<key_type, val_type>::lookup_many_coords(
   int *coords, val_type *results, 
   const int* kernel_sizes, const int* strides,
   const int n, const int kernel_volume){
-  if (kernel_volume % 2)
-    lookup_coords_kernel<key_type, val_type, true><<<(n * kernel_volume + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(
-      table_keys, table_vals, coords, results, kernel_sizes, strides,
-      n, _capacity, kernel_volume);
-  else
-    lookup_coords_kernel<key_type, val_type, false><<<(n * kernel_volume + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(
-      table_keys, table_vals, coords, results, kernel_sizes, strides,
-      n, _capacity, kernel_volume);
+  lookup_coords_kernel<key_type, val_type><<<(n * kernel_volume + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(
+    table_keys, table_vals, coords, results, kernel_sizes, strides,
+    n, _capacity, kernel_volume);
 }
 
 template <typename key_type, typename val_type>

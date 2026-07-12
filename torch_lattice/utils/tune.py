@@ -464,7 +464,7 @@ def tune(
         for name, module in model.named_modules():
             # register hook
             if isinstance(module, _TUNABLE_CONV_TYPES):
-                if len(module.kernel.data.shape) == 3:
+                if len(module.weight.data.shape) == 3:
                     _handler = module.register_forward_hook(
                         functools.partial(dump, name=name)
                     )

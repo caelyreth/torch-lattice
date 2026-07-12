@@ -235,6 +235,20 @@ randomly initialized missing parameters for a reproduction run. Before an
 expensive training job, require a CUDA optimizer-step test, checkpoint roundtrip,
 and whole-block output/gradient comparison against the source implementation.
 
+For a historical TorchSparse checkpoint, write a JSON mapping from each
+``.kernel`` key to its exact ``[Kx, Ky, Kz]`` shape and run:
+
+.. code-block:: bash
+
+   uv run convert-checkpoint legacy.pt weights.safetensors \
+     --kernel-spec legacy-kernels.json
+
+The resulting manifest records the exact historical source layout and row
+permutation for every tensor. Historical TorchSparse used x-fastest rows for
+odd-volume kernels and z-fastest rows for even-volume kernels. The converter
+refuses unlisted legacy kernels and never runs as part of model loading, export,
+or inference.
+
 Fetch-on-Demand training correctness
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

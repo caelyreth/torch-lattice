@@ -1,6 +1,6 @@
 [project]
 name = "torch-lattice"
-version = "0.3.1"
+version = "0.4.0"
 description = "Sparse convolution library for modern PyTorch and CUDA."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -11,7 +11,7 @@ authors = [
     { name = "MIT HAN Lab" },
 ]
 dependencies = [
-    "lattice-contract>=0.4,<0.5",
+    "lattice-contract>=0.5,<0.6",
     "numpy>=2.4",
     "safetensors>=0.8.0",
     "torch==2.11.0+cu128",

@@ -113,7 +113,7 @@ def test_bev_modules_default_to_z_coordinate_dim(module_cls):
         module = module_cls().cuda()
     else:
         module = module_cls(1, 1, n_kernels=4).cuda()
-        module.kernel.data.fill_(1)
+        module.weight.data.fill_(1)
 
     coords = torch.tensor(
         [[0, 1, 2, 3], [0, 1, 2, 1], [0, 2, 2, 3]],

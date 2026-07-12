@@ -69,8 +69,8 @@ def test_conv_modules_use_pointwise_cpu_safe_path() -> None:
     conv = spnn.Conv3d(1, 1, kernel_size=1, bias=False)
     subm = spnn.SubmConv3d(1, 1, kernel_size=1, bias=False)
     with torch.no_grad():
-        conv.kernel.fill_(2.0)
-        subm.kernel.fill_(2.0)
+        conv.weight.fill_(2.0)
+        subm.weight.fill_(2.0)
 
     forward = conv(x)
     support_preserving = subm(x)
@@ -87,8 +87,8 @@ def test_conv_modules_cuda_forward_and_subm_use_distinct_support_semantics() -> 
     conv = spnn.Conv3d(1, 1, kernel_size=(3, 1, 1), bias=False).cuda()
     subm = spnn.SubmConv3d(1, 1, kernel_size=(3, 1, 1), bias=False).cuda()
     with torch.no_grad():
-        conv.kernel.fill_(1.0)
-        subm.kernel.fill_(1.0)
+        conv.weight.fill_(1.0)
+        subm.weight.fill_(1.0)
 
     forward = conv(x)
     support_preserving = subm(x)

@@ -65,7 +65,7 @@ def test_target_conv3d_runtime_uses_target_support():
     )
     conv = spnn.Conv3d(2, 1, kernel_size=1, bias=True)
     with torch.no_grad():
-        conv.kernel.copy_(torch.tensor([[2.0], [3.0]]))
+        conv.weight.copy_(torch.tensor([[[2.0], [3.0]]]))
         conv.bias.copy_(torch.tensor([0.5]))
     out = conv(x, coordinates=target)
     assert torch.equal(out.coords, target.coords)

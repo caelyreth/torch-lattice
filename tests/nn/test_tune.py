@@ -675,7 +675,7 @@ def test_implicit_gemm_active_weight_cache_invalidates_on_weight_update(monkeypa
     weight = torch.randn(
         27, in_channels, out_channels, device="cuda", dtype=torch.float16
     )
-    active_kernel_offsets = torch.tensor([12, 13, 14], device="cuda")
+    active_kernel_offsets = torch.tensor([4, 13, 22], device="cuda")
     kmap = {
         "sizes": (points, points),
         "out_in_map": torch.full((points, 3), -1, device="cuda", dtype=torch.int32),

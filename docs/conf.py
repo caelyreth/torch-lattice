@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +14,9 @@ sys.path.insert(0, str(ROOT / "conformance"))
 project = "torch-lattice"
 author = "Z.Y. Lin"
 copyright = f"{datetime.now(UTC).year}, {author}"
-release = "0.3.1"
+release = tomllib.loads(
+    (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+)["project"]["version"]
 version = release
 
 extensions = [

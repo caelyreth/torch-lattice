@@ -17,7 +17,9 @@ def test_fuzz_fixture_generator_writes_replayable_case_tree(tmp_path: Path) -> N
     archive = tmp_path / "fuzz.tar.gz"
     subprocess.run(
         [
-            "fuzz",
+            sys.executable,
+            "-m",
+            "torch_lattice_conformance.generate",
             "--cases",
             "3",
             "--seed",
@@ -70,7 +72,9 @@ def test_torchsparse_migration_compatibility_tool_smoke(tmp_path: Path) -> None:
     output = tmp_path / "compat"
     subprocess.run(
         [
-            "migration",
+            sys.executable,
+            "-m",
+            "torch_lattice_conformance.migration",
             "all",
             "--cases",
             "7",

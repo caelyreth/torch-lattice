@@ -9,5 +9,6 @@ artifact contract shared with MLX Lattice.
 
    sparse-tensor
    convolution-semantics
+   numerics
    artifacts
    migration

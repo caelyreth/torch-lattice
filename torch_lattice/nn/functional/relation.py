@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from itertools import product
-
 import torch
+from lattice_contract import kernel_positions
 
 from torch_lattice.nn.functional.conv.kmap.layout import set_neighbor_pairs
 from torch_lattice.utils import make_ntuple
@@ -247,7 +246,7 @@ def gather_scatter_kmap_from_out_in_map(
 
 def _kernel_offsets(kernel_size: Triple, *, device: torch.device) -> torch.Tensor:
     return torch.tensor(
-        list(product(*(range(item) for item in kernel_size))),
+        kernel_positions(kernel_size),
         dtype=torch.int64,
         device=device,
     )

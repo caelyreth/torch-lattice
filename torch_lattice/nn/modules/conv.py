@@ -4,6 +4,7 @@ import math
 from collections.abc import Mapping, Sequence
 
 import torch
+from lattice_contract import kernel_positions
 from torch import nn
 
 from torch_lattice import SparseTensor
@@ -71,12 +72,17 @@ class _BaseConv3d(nn.Module):
         self._config = config
 
         self.kernel_volume = math.prod(self.kernel_size)
-        if self.kernel_volume > 1 or self.stride != (1, 1, 1):
-            self.kernel = nn.Parameter(
-                torch.zeros(self.kernel_volume, in_channels, out_channels)
-            )
-        else:
-            self.kernel = nn.Parameter(torch.zeros(in_channels, out_channels))
+        # K rows are canonical x/y/z positions with z varying fastest. Keeping
+        # the execution tensor kernel-major preserves CUDA GEMM efficiency while
+        # the persistent position buffer makes checkpoint semantics explicit.
+        self.weight = nn.Parameter(
+            torch.zeros(self.kernel_volume, in_channels, out_channels)
+        )
+        self.register_buffer(
+            'kernel_positions',
+            torch.tensor(kernel_positions(self.kernel_size), dtype=torch.int32),
+            persistent=True,
+        )
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
@@ -98,7 +104,7 @@ class _BaseConv3d(nn.Module):
     def reset_parameters(self) -> None:
         fan_channels = self.out_channels if self.transposed else self.in_channels
         std = 1 / math.sqrt(fan_channels * self.kernel_volume)
-        self.kernel.data.uniform_(-std, std)
+        self.weight.data.uniform_(-std, std)
         if self.bias is not None:
             self.bias.data.uniform_(-std, std)
 
@@ -110,7 +116,7 @@ class _BaseConv3d(nn.Module):
         convolution = F.normalized_conv3d if self.normalized else F.conv3d
         return convolution(
             input,
-            weight=self.kernel,
+            weight=self.weight,
             kernel_size=self.kernel_size,
             bias=self.bias,
             stride=self.stride,

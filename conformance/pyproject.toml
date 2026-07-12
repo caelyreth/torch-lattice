@@ -1,6 +1,6 @@
 [project]
 name = "torch-lattice-conformance"
-version = "0.3.1"
+version = "0.4.0"
 description = "Cross-runtime fixture generation and migration conformance tools for torch-lattice"
 requires-python = ">=3.14"
 dependencies = [
@@ -12,6 +12,7 @@ conformance = "torch_lattice_conformance.cli:main"
 fuzz = "torch_lattice_conformance.generate:main"
 e2e-fixtures = "torch_lattice_conformance.e2e:main"
 migration = "torch_lattice_conformance.migration:main"
+convert-checkpoint = "torch_lattice_conformance.checkpoint:main"
 
 [build-system]
 requires = ["hatchling>=1.28"]

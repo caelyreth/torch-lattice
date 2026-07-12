@@ -1040,7 +1040,7 @@ def _generative_transpose_reference(
                 int(coord[2]) * stride[1] + offset[1],
                 int(coord[3]) * stride[2] + offset[2],
             )
-            value = feat @ conv.kernel[kernel_id]
+            value = feat @ conv.weight[kernel_id]
             rows[out_coord] = rows.get(out_coord, torch.zeros_like(value)) + value
     coords = torch.tensor(sorted(rows), dtype=torch.int32)
     feats = torch.stack([rows[tuple(coord.tolist())] for coord in coords])
@@ -1094,9 +1094,7 @@ def _quantized_reference_model(
                 )
                 .contiguous()
             )
-            if module.kernel.ndim == 2:
-                kernel = kernel.reshape(module.in_channels, module.out_channels)
-            module.kernel.data.copy_(kernel.to(module.kernel.dtype))
+            module.weight.data.copy_(kernel.to(module.weight.dtype))
         elif isinstance(module, nn.Linear):
             module.weight.data.copy_(
                 dequantize_artifact_weight(
@@ -1111,9 +1109,7 @@ def _quantized_reference_model(
 
 def _conv_weight_to_mlx_like(module: spnn.Conv3d) -> torch.Tensor:
     kernel_size = tuple(int(item) for item in module.kernel_size)
-    weight = module.kernel.detach()
-    if weight.ndim == 2:
-        weight = weight.reshape(1, weight.shape[0], weight.shape[1])
+    weight = module.weight.detach()
     return (
         weight.reshape(*kernel_size, module.in_channels, module.out_channels)
         .permute(4, 0, 1, 2, 3)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -20,47 +21,78 @@ from torch_lattice.artifact import (
 )
 from torch_lattice.nn.functional.conv import Dataflow, conv_config
 
-ROOT = Path("/tmp/torch_lattice_e2e_fixtures")
+DEFAULT_OUTPUT = Path("/tmp/torch_lattice_e2e_fixtures")
 
 
-def main() -> None:
-    if ROOT.exists():
-        shutil.rmtree(ROOT)
-    ROOT.mkdir(parents=True)
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate deterministic Torch CUDA to MLX artifact fixtures."
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    args = parser.parse_args(argv)
+    generate(args.output)
+
+
+def generate(root: Path) -> None:
+    """Write the complete deterministic cross-runtime fixture corpus."""
+
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
     torch.manual_seed(7)
     cases = [
-        "sparse_classifier",
-        "target_branch",
-        "point_voxel",
-        "quantized_classifier_int8",
-        "quantized_classifier_int4",
-        "transpose_convolution",
-        "generative_transpose_convolution",
-        "normalized_convolution",
-        "target_transpose_convolution",
-        "trilinear_upsample",
-        "pool_transpose",
-        "sparse_reindex",
-        "gameleon_reproduction_block",
+        _case("sparse_classifier", "classifier", "dense", 5e-4, 5e-4),
+        _case("target_branch", "sparse_branch", "sparse", 2e-3, 2e-3),
+        _case("point_voxel", "point_voxel", "dense", 1e-4, 1e-4),
+        _case("quantized_classifier_int8", "quantized", "dense", 1e-2, 1e-2),
+        _case("quantized_classifier_int4", "quantized", "dense", 5e-2, 5e-2),
+        _case("transpose_convolution", "transpose", "sparse", 2e-3, 2e-3),
+        _case("generative_transpose_convolution", "transpose", "sparse", 2e-3, 2e-3),
+        _case("normalized_convolution", "normalized", "sparse", 2e-3, 2e-3),
+        _case("canonical_kernel_layout", "kernel_layout", "sparse", 1e-5, 1e-5),
+        _case("target_transpose_convolution", "transpose", "sparse", 2e-3, 2e-3),
+        _case("trilinear_upsample", "upsample", "sparse", 1e-5, 1e-6),
+        _case("pool_transpose", "pool", "sparse", 1e-5, 1e-6),
+        _case("sparse_reindex", "reindex", "sparse", 1e-6, 1e-6),
+        _case("gameleon_reproduction_block", "gameleon", "sparse", 3e-3, 3e-3),
     ]
-    _sparse_classifier(ROOT / "sparse_classifier")
-    _target_branch(ROOT / "target_branch")
-    _point_voxel(ROOT / "point_voxel")
-    _quantized_classifier(ROOT / "quantized_classifier_int8", bits=8)
-    _quantized_classifier(ROOT / "quantized_classifier_int4", bits=4)
-    _transpose_convolution(ROOT / "transpose_convolution")
-    _generative_transpose_convolution(ROOT / "generative_transpose_convolution")
-    _normalized_convolution(ROOT / "normalized_convolution")
-    _target_transpose_convolution(ROOT / "target_transpose_convolution")
-    _trilinear_upsample(ROOT / "trilinear_upsample")
-    _pool_transpose(ROOT / "pool_transpose")
-    _sparse_reindex(ROOT / "sparse_reindex")
-    _gameleon_reproduction_block(ROOT / "gameleon_reproduction_block")
-    (ROOT / "manifest.json").write_text(
-        json.dumps({"cases": cases}, indent=2),
+    _sparse_classifier(root / "sparse_classifier")
+    _target_branch(root / "target_branch")
+    _point_voxel(root / "point_voxel")
+    _quantized_classifier(root / "quantized_classifier_int8", bits=8)
+    _quantized_classifier(root / "quantized_classifier_int4", bits=4)
+    _transpose_convolution(root / "transpose_convolution")
+    _generative_transpose_convolution(root / "generative_transpose_convolution")
+    _normalized_convolution(root / "normalized_convolution")
+    _canonical_kernel_layout(root / "canonical_kernel_layout")
+    _target_transpose_convolution(root / "target_transpose_convolution")
+    _trilinear_upsample(root / "trilinear_upsample")
+    _pool_transpose(root / "pool_transpose")
+    _sparse_reindex(root / "sparse_reindex")
+    _gameleon_reproduction_block(root / "gameleon_reproduction_block")
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {"schema": "torch_lattice_e2e_fixtures/v1", "cases": cases}, indent=2
+        ),
         encoding="utf-8",
     )
-    print(ROOT)
+    print(root)
+
+
+def _case(
+    name: str,
+    family: str,
+    output_kind: str,
+    rtol: float,
+    atol: float,
+) -> dict[str, str | float]:
+    return {
+        "name": name,
+        "family": family,
+        "output_kind": output_kind,
+        "rtol": rtol,
+        "atol": atol,
+    }
 
 
 @contextmanager
@@ -187,6 +219,17 @@ class NormalizedConvolution(nn.Module):
         return self.conv(x)
 
 
+class CanonicalKernelLayout(nn.Module):
+    """Non-cubic row-distinct kernel used to lock the artifact ABI."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = spnn.SubmConv3d(1, 1, kernel_size=(3, 1, 5), bias=False)
+
+    def forward(self, x: SparseTensor) -> SparseTensor:
+        return self.conv(x)
+
+
 class PoolTranspose(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -308,7 +351,7 @@ def _quantized_classifier(case_dir: Path, *, bits: int) -> None:
     model = QuantizedClassifier().eval()
     x = _classifier_input()
     with torch.no_grad():
-        model.stem.kernel.copy_(
+        model.stem.weight.copy_(
             torch.tensor(
                 [
                     [0.20, -0.10, 0.15, 0.05],
@@ -316,7 +359,7 @@ def _quantized_classifier(case_dir: Path, *, bits: int) -> None:
                     [0.40, 0.05, -0.30, 0.25],
                 ],
                 dtype=torch.float32,
-            )
+            ).unsqueeze(0)
         )
         model.stem.bias.copy_(torch.tensor([0.02, -0.03, 0.04, 0.01]))
         model.head.weight.copy_(
@@ -367,9 +410,10 @@ def _target_branch(case_dir: Path) -> None:
         optimizer.step()
     model.eval()
     expected = model(x, target)
-    builder = TorchLatticeArtifactBuilder(input_dtype="f32")
+    builder = TorchLatticeArtifactBuilder(input_dtype="f32", create_default_input=False)
+    x_value = builder.sparse_argument("x", channels=2)
     target_value = builder.sparse_argument("target", channels=1)
-    lower_fx_artifact(builder, model, inputs=(builder.current, target_value))
+    lower_fx_artifact(builder, model, inputs=(x_value, target_value))
     builder.save(case_dir)
     _save_sparse_inputs(case_dir, "x", x, extra={"target": target})
     _save_sparse_expected(case_dir, expected)
@@ -450,7 +494,7 @@ def _normalized_convolution(case_dir: Path) -> None:
     model = NormalizedConvolution().eval()
     x = _transpose_input()
     with torch.no_grad():
-        model.conv.kernel.copy_(
+        model.conv.weight.copy_(
             torch.tensor(
                 [
                     [[0.2, -0.4, 0.1], [0.3, 0.5, -0.2]],
@@ -460,6 +504,32 @@ def _normalized_convolution(case_dir: Path) -> None:
             )
         )
         model.conv.bias.copy_(torch.tensor([0.05, -0.02, 0.03]))
+    model, x_eval = _cuda_eval_pair(model, x)
+    with _conv_dataflow(Dataflow.GatherScatter):
+        expected = model(x_eval).cpu()
+    save_lattice_model_artifact(model, case_dir, example_inputs=(x,))
+    _save_sparse_inputs(case_dir, "x", x)
+    _save_sparse_expected(case_dir, expected)
+
+
+def _canonical_kernel_layout(case_dir: Path) -> None:
+    """Export CUDA output whose values identify every canonical kernel row."""
+
+    case_dir.mkdir()
+    model = CanonicalKernelLayout().eval()
+    x = SparseTensor(
+        feats=torch.arange(1, 16, dtype=torch.float32).reshape(-1, 1),
+        coords=torch.tensor(
+            [[0, x, 0, z] for x in range(3) for z in range(5)],
+            dtype=torch.int32,
+        ),
+        spatial_range=(1, 3, 1, 5),
+        batch_counts=(15,),
+    )
+    with torch.no_grad():
+        model.conv.weight.copy_(
+            torch.arange(-7, 8, dtype=torch.float32).reshape(15, 1, 1)
+        )
     model, x_eval = _cuda_eval_pair(model, x)
     with _conv_dataflow(Dataflow.GatherScatter):
         expected = model(x_eval).cpu()
@@ -516,7 +586,7 @@ def _target_transpose_convolution(case_dir: Path) -> None:
         spatial_range=(1, 5, 1, 1),
     )
     with torch.no_grad():
-        model.up.kernel.copy_(
+        model.up.weight.copy_(
             torch.tensor(
                 [
                     [[0.2, -0.4, 0.1], [0.3, 0.5, -0.2]],
@@ -649,7 +719,7 @@ def _generative_transpose_reference(
                 int(base[2]) * stride[1] + offset[1],
                 int(base[3]) * stride[2] + offset[2],
             )
-            value = feat @ model.up.kernel[kernel_id]
+            value = feat @ model.up.weight[kernel_id]
             rows[out_coord] = rows.get(out_coord, torch.zeros_like(value)) + value
     coords = torch.tensor(sorted(rows), dtype=torch.int32)
     feats = torch.stack([rows[tuple(coord.tolist())] for coord in coords])

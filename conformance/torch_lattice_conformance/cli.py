@@ -4,7 +4,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from torch_lattice_conformance import e2e, generate, migration
+from torch_lattice_conformance import checkpoint, e2e, generate, migration
 
 _Command = tuple[str, str, Callable[[], None]]
 _COMMANDS: tuple[_Command, ...] = (
@@ -18,6 +18,11 @@ _COMMANDS: tuple[_Command, ...] = (
         "migration",
         "Compare the supported original TorchSparse migration subset.",
         migration.main,
+    ),
+    (
+        "convert-checkpoint",
+        "Convert a trusted TorchSparse checkpoint with explicit kernel metadata.",
+        checkpoint.main,
     ),
 )
 

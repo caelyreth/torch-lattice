@@ -253,8 +253,6 @@ class TorchLatticeArtifactBuilder:
         name: str,
         module: spnn.Conv3d,
         input: ArtifactValue,
-        *,
-        relation_order: bool = False,
     ):
         value = self._current_or(input)
         self._require_sparse(value, module)
@@ -262,9 +260,9 @@ class TorchLatticeArtifactBuilder:
         weight = self._weight(
             name,
             "weight",
-            _conv_weight_to_mlx(module, relation_order=relation_order),
+            _conv_weight_to_mlx(module),
             family="conv3d",
-            layout="conv3d_o_zyx_i",
+            layout="conv3d_o_xyz_i",
         )
         bias = None
         if module.bias is not None:
@@ -293,15 +291,7 @@ class TorchLatticeArtifactBuilder:
         input: ArtifactValue,
         coordinates: ArtifactValue | None = None,
     ) -> ArtifactValue:
-        relation_order = coordinates is not None or any(
-            value != 1 for value in module.dilation
-        )
-        args = self._conv_args(
-            name,
-            module,
-            input,
-            relation_order=relation_order,
-        )
+        args = self._conv_args(name, module, input)
         if coordinates is None:
             out = self._builder.conv3d(
                 **args,
@@ -328,12 +318,7 @@ class TorchLatticeArtifactBuilder:
         input: ArtifactValue,
     ) -> ArtifactValue:
         out = self._builder.subm_conv3d(
-            **self._conv_args(
-                name,
-                module,
-                input,
-                relation_order=any(value != 1 for value in module.dilation),
-            ),
+            **self._conv_args(name, module, input),
             dilation=_triple(module.dilation),
         )
         return ArtifactValue(out, "sparse_tensor", module.out_channels)
@@ -347,12 +332,7 @@ class TorchLatticeArtifactBuilder:
     ) -> ArtifactValue:
         self._require_dense_normalized_weights(module)
         out = self._builder.normalized_subm_conv3d(
-            **self._conv_args(
-                name,
-                module,
-                input,
-                relation_order=any(value != 1 for value in module.dilation),
-            ),
+            **self._conv_args(name, module, input),
             dilation=_triple(module.dilation),
             eps=module.eps,
         )
@@ -1362,34 +1342,19 @@ def _single_normalized_dim(value, name: str) -> int:
 
 def _conv_weight_to_mlx(
     module: spnn.Conv3d,
-    *,
-    relation_order: bool,
 ) -> torch.Tensor:
     kernel_size = _triple(module.kernel_size)
-    weight = module.kernel.detach()
-    if weight.ndim == 2:
-        weight = weight.reshape(1, weight.shape[0], weight.shape[1])
+    weight = module.weight.detach()
     expected_kernel_volume = kernel_size[0] * kernel_size[1] * kernel_size[2]
     if weight.ndim != 3 or weight.shape[0] != expected_kernel_volume:
         raise ValueError(
             f"Conv3d kernel shape {tuple(weight.shape)} does not match kernel_size={kernel_size}."
         )
-    if relation_order or expected_kernel_volume % 2 == 0:
-        spatial_weight = weight.reshape(
-            *kernel_size,
-            module.in_channels,
-            module.out_channels,
-        )
-    else:
-        # Legacy TorchSparse CUDA maps enumerate odd kernels with x fastest.
-        # The lattice relation contract enumerates z fastest.
-        spatial_weight = weight.reshape(
-            kernel_size[2],
-            kernel_size[1],
-            kernel_size[0],
-            module.in_channels,
-            module.out_channels,
-        ).permute(2, 1, 0, 3, 4)
+    spatial_weight = weight.reshape(
+        *kernel_size,
+        module.in_channels,
+        module.out_channels,
+    )
     return spatial_weight.permute(4, 0, 1, 2, 3).contiguous()
 
 

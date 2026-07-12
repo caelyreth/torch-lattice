@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 import torch_lattice
-from lattice_contract import DIALECT_SCHEMA_DIGEST
+from lattice_contract import CURRENT_DIALECT_VERSION, DIALECT_SCHEMA_DIGEST
 from safetensors.torch import load_file
 from torch import nn
 from torch_lattice import nn as spnn
@@ -106,7 +106,7 @@ def test_artifact_fx_tiny_sparse_pool_linear_artifact(tmp_path):
         "weights.safetensors",
     ]
     graph = report.graph_path.read_text(encoding="utf-8")
-    assert "lattice.ir_version = 0" in graph
+    assert f"lattice.ir_version = {CURRENT_DIALECT_VERSION}" in graph
     assert f'lattice.schema_digest = "{DIALECT_SCHEMA_DIGEST}"' in graph
     assert 'lattice.input_names = ["x_coords", "x_features", "x_active"]' in graph
     assert "%x_active: tensor<1xi32>" in graph
@@ -304,7 +304,7 @@ def test_artifact_conv3d_module_identity_selects_mlir_op(tmp_path, module, expec
 def test_artifact_conv3d_weight_layout(tmp_path):
     conv = spnn.Conv3d(2, 3, kernel_size=(2, 1, 2), stride=(2, 1, 2), bias=False)
     with torch.no_grad():
-        conv.kernel.copy_(torch.arange(conv.kernel.numel()).reshape_as(conv.kernel))
+        conv.weight.copy_(torch.arange(conv.weight.numel()).reshape_as(conv.weight))
 
     report = save_lattice_model_artifact(
         conv.eval(),
@@ -315,15 +315,15 @@ def test_artifact_conv3d_weight_layout(tmp_path):
     weights = load_file(report.weights_path)
 
     exported = weights["conv3d.weight"]
-    expected = conv.kernel.detach().reshape(2, 1, 2, 2, 3).permute(4, 0, 1, 2, 3)
+    expected = conv.weight.detach().reshape(2, 1, 2, 2, 3).permute(4, 0, 1, 2, 3)
     torch.testing.assert_close(exported, expected)
 
 
-def test_artifact_reorders_native_odd_kernel_layout(tmp_path):
+def test_artifact_preserves_canonical_odd_kernel_layout(tmp_path):
     conv = spnn.SubmConv3d(1, 1, kernel_size=(3, 3, 3), bias=False)
     sample = _sample_sparse_tensor()
     with torch.no_grad():
-        conv.kernel.copy_(torch.arange(conv.kernel.numel()).reshape_as(conv.kernel))
+        conv.weight.copy_(torch.arange(conv.weight.numel()).reshape_as(conv.weight))
 
     report = save_lattice_model_artifact(
         conv.eval(),
@@ -331,12 +331,7 @@ def test_artifact_reorders_native_odd_kernel_layout(tmp_path):
         example_inputs=(sample.replace(feats=sample.feats[:, :1]),),
     )
     exported = load_file(report.weights_path)["submconv3d.weight"]
-    expected = (
-        conv.kernel.detach()
-        .reshape(3, 3, 3, 1, 1)
-        .permute(2, 1, 0, 3, 4)
-        .permute(4, 0, 1, 2, 3)
-    )
+    expected = conv.weight.detach().reshape(3, 3, 3, 1, 1).permute(4, 0, 1, 2, 3)
 
     torch.testing.assert_close(exported, expected)
 

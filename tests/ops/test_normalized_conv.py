@@ -61,7 +61,7 @@ def test_normalized_pointwise_bypasses_weight_norm() -> None:
     )
     module = spnn.NormalizedSubmConv3d(2, 1, kernel_size=1, bias=False)
     with torch.no_grad():
-        module.kernel.copy_(torch.tensor([[4.0], [5.0]]))
+        module.weight.copy_(torch.tensor([[[4.0], [5.0]]]))
 
     out = module(x)
 
@@ -108,12 +108,12 @@ def test_normalized_generative_transpose_uses_one_support(
         config=config,
     ).to(cuda_device)
     with torch.no_grad():
-        module.kernel.copy_(torch.arange(1.0, 9.0, device=cuda_device).reshape(8, 1, 1))
+        module.weight.copy_(torch.arange(1.0, 9.0, device=cuda_device).reshape(8, 1, 1))
 
     out = module(x)
     numerator = F.conv3d(
         x,
-        module.kernel,
+        module.weight,
         kernel_size=module.kernel_size,
         stride=module.stride,
         transposed=True,
@@ -122,7 +122,7 @@ def test_normalized_generative_transpose_uses_one_support(
     )
     denominator = F.conv3d(
         x.replace(feats=torch.ones_like(x.feats)),
-        module.kernel.square(),
+        module.weight.square(),
         kernel_size=module.kernel_size,
         stride=module.stride,
         transposed=True,
@@ -146,8 +146,8 @@ def test_normalized_transpose_reuses_forward_inverse_relation(
         1, 1, kernel_size=(2, 1, 1), stride=2, bias=False
     ).to(cuda_device)
     with torch.no_grad():
-        down.kernel.fill_(1.0)
-        up.kernel.fill_(1.0)
+        down.weight.fill_(1.0)
+        up.weight.fill_(1.0)
 
     reduced = down(x)
     restored = up(reduced)
@@ -177,7 +177,7 @@ def test_target_transpose_matches_indexed_geometry(cuda_device) -> None:
         bias=False,
     ).to(cuda_device)
     with torch.no_grad():
-        module.kernel.copy_(
+        module.weight.copy_(
             torch.tensor([1.0, 2.0, 3.0], device=cuda_device).reshape(3, 1, 1)
         )
 

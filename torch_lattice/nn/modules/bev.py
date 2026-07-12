@@ -28,9 +28,11 @@ class ToBEVReduction(nn.Module):
         coords = coords.clone()
         coords[:, self.dim] = 0
         feats = torch.cat([torch.ones_like(feats[:, :1]), feats], axis=1)
-        tensor = torch.sparse_coo_tensor(
-            coords.t().long(), feats, check_invariants=False
-        ).coalesce()
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            tensor = torch.sparse_coo_tensor(
+                coords.t().long(),
+                feats,
+            ).coalesce()
         coords = tensor.indices().t().int()
         feats = tensor.values()[:, 1:] / tensor.values()[:, :1]
         return input.with_coordinates(feats=feats, coords=coords)
@@ -74,7 +76,7 @@ class ToDenseBEVConvolution(nn.Module):
         self.n_kernels = int(self.shape[spatial_dim])
         self.bev_dims = [i for i in range(1, 4) if i != self.dim]
         self.bev_shape = self.shape[[i - 1 for i in self.bev_dims]]
-        self.kernel = nn.Parameter(
+        self.weight = nn.Parameter(
             torch.zeros(self.n_kernels, in_channels, out_channels)
         )
         self.bias = nn.Parameter(torch.zeros(1, out_channels)) if bias else 0
@@ -87,7 +89,7 @@ class ToDenseBEVConvolution(nn.Module):
 
     def reset_parameters(self):
         std = 1.0 / math.sqrt(self.in_channels)
-        self.kernel.data.uniform_(-std, std)
+        self.weight.data.uniform_(-std, std)
 
     def forward(self, input: SparseTensor) -> torch.Tensor:
         coords, feats, stride = input.coords, input.feats, input.stride
@@ -96,7 +98,7 @@ class ToDenseBEVConvolution(nn.Module):
         ]
 
         kernel = torch.index_select(
-            self.kernel,
+            self.weight,
             0,
             torch.div(coords[:, self.dim], stride, rounding_mode="trunc").long(),
         )
@@ -109,12 +111,12 @@ class ToDenseBEVConvolution(nn.Module):
             + coords[2]
         )
         batch_size = coords[0].max().item() + 1
-        output = torch.sparse_coo_tensor(
-            indices.unsqueeze(dim=0),
-            feats,
-            torch.Size([batch_size * int(self.bev_shape.prod()), feats.size(-1)]),
-            check_invariants=False,
-        ).to_dense()
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            output = torch.sparse_coo_tensor(
+                indices.unsqueeze(dim=0),
+                feats,
+                torch.Size([batch_size * int(self.bev_shape.prod()), feats.size(-1)]),
+            ).to_dense()
         output = output.view(batch_size, *self.bev_shape, -1)
         output = output.permute(0, 3, 1, 2).contiguous()
         return output
@@ -138,13 +140,13 @@ class ToBEVConvolution(nn.Module):
         self.n_kernels = n_kernels
         self.stride = stride
         self.dim = dim
-        self.kernel = nn.Parameter(torch.zeros(n_kernels, in_channels, out_channels))
+        self.weight = nn.Parameter(torch.zeros(n_kernels, in_channels, out_channels))
         self.bias = nn.Parameter(torch.zeros(1, out_channels)) if bias else 0
         self.reset_parameters()
 
     def reset_parameters(self):
         std = 1.0 / math.sqrt(self.in_channels)
-        self.kernel.data.uniform_(-std, std)
+        self.weight.data.uniform_(-std, std)
 
     def extra_repr(self):
         return "in_channels={}, out_channels={}, n_kernels={}, stride={}".format(
@@ -159,7 +161,7 @@ class ToBEVConvolution(nn.Module):
         ]
 
         kernels = torch.index_select(
-            self.kernel,
+            self.weight,
             0,
             torch.div(coords[:, self.dim], stride, rounding_mode="trunc").long(),
         )
@@ -170,9 +172,11 @@ class ToBEVConvolution(nn.Module):
             ratio = torch.tensor(ratio, dtype=coords.dtype, device=coords.device)
             coords[1:] = torch.div(coords[1:], ratio[:, None], rounding_mode="trunc")
             coords[1:] *= ratio[:, None]
-        flatten = torch.sparse_coo_tensor(
-            coords, feats, check_invariants=False
-        ).coalesce()
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            flatten = torch.sparse_coo_tensor(
+                coords,
+                feats,
+            ).coalesce()
         return SparseTensor(flatten.values(), flatten.indices().t().int(), ratio)
 
 
@@ -237,12 +241,12 @@ class ToBEVHeightCompression(nn.Module):
             if coords.shape[1] > 0
             else 0
         )
-        output = torch.sparse_coo_tensor(
-            indices.unsqueeze(dim=0),
-            feats,
-            torch.Size([batch_size * int(self.shape.prod()), feats.size(-1)]),
-            check_invariants=False,
-        ).to_dense()
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            output = torch.sparse_coo_tensor(
+                indices.unsqueeze(dim=0),
+                feats,
+                torch.Size([batch_size * int(self.shape.prod()), feats.size(-1)]),
+            ).to_dense()
         output = output.view(batch_size, *self.bev_shape.cpu().numpy(), -1)
         output = output.permute(0, 3, 1, 2).contiguous()
         return output

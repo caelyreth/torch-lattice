@@ -429,7 +429,7 @@ __global__ void inverse_transform_coords_and_insert_kernel(
 }
 
 
-template <typename type_int, bool odd>  // int32_t or int64_t
+template <typename type_int>  // int32_t or int64_t
 __global__ void downsample_grid_kmap_stage1_specialized_fast(
     int n_points, int kernel_volume, int *in_coords, int *kernel_sizes, int *stride,
     int *padding, int *coords_min, int *coords_max, int *n_out_points,
@@ -441,29 +441,16 @@ __global__ void downsample_grid_kmap_stage1_specialized_fast(
   if (idx >= n_points) return;
   int coords_out[NDim];
   coords_out[0] = in_coords[idx * NDim];  //batch_idx
-  if constexpr (odd)
-  {
-    #pragma unroll
-    for(int i = 1; i <= NDim - 1; i++){
-      int cur_offset = _kernel_idx % kernel_sizes[i - 1];
-      cur_offset -= (kernel_sizes[i - 1] - 1);
-      coords_out[i] = in_coords[idx * NDim + i] + padding[i - 1] + cur_offset;
-      if(coords_out[i] % stride[i - 1] != 0) return;
-      coords_out[i] /= stride[i - 1];
-      _kernel_idx /= kernel_sizes[i - 1];
-    }
-  }
-  else
-  {
-    #pragma unroll
-    for(int i = NDim - 1; i >= 1; i--){
-      int cur_offset = _kernel_idx % kernel_sizes[i - 1];
-      cur_offset -= (kernel_sizes[i - 1] - 1);
-      coords_out[i] = in_coords[idx * NDim + i] + padding[i - 1] + cur_offset;
-      if(coords_out[i] % stride[i - 1] != 0) return;
-      coords_out[i] /= stride[i - 1];
-      _kernel_idx /= kernel_sizes[i - 1];
-    }
+  // Decode canonical x/y/z rows from z to x. The reverse offset below maps
+  // input-driven support construction back to the output-to-input row.
+  #pragma unroll
+  for(int i = NDim - 1; i >= 1; i--){
+    int cur_offset = _kernel_idx % kernel_sizes[i - 1];
+    cur_offset -= (kernel_sizes[i - 1] - 1);
+    coords_out[i] = in_coords[idx * NDim + i] + padding[i - 1] + cur_offset;
+    if(coords_out[i] % stride[i - 1] != 0) return;
+    coords_out[i] /= stride[i - 1];
+    _kernel_idx /= kernel_sizes[i - 1];
   }
   if (coords_out[1] >= coords_min[1] &&
     coords_out[1] <= coords_max[1] &&
@@ -535,7 +522,7 @@ __global__ void subm_hashmap_kmap_stage2_odd_kernel(type_hashtable_device_view t
   coords_out[0] = in_coords[idx * NDim];
 
   #pragma unroll
-  for(int i = 1; i <= NDim - 1; i++){
+  for(int i = NDim - 1; i >= 1; i--){
     int cur_offset = _kernel_idx % kernel_sizes[i - 1];
     cur_offset -= (kernel_sizes[i - 1] - 1) / 2;
     coords_out[i] = in_coords[idx * NDim + i] + cur_offset;
@@ -625,7 +612,7 @@ __global__ void subm_hashmap_kmap_stage2_compact_odd_kernel(type_hashtable_devic
   coords_out[0] = in_coords[idx * NDim];
 
   #pragma unroll
-  for(int i = 1; i <= NDim - 1; i++){
+  for(int i = NDim - 1; i >= 1; i--){
     int cur_offset = _kernel_idx % kernel_sizes[i - 1];
     cur_offset -= (kernel_sizes[i - 1] - 1) / 2;
     coords_out[i] = in_coords[idx * NDim + i] + cur_offset;
@@ -865,20 +852,10 @@ std::vector<at::Tensor> build_kernel_map_downsample_hashmap_int32(
   // If we do specialized downsample for 3D coords (stage 1), we do it (using
   divided coords_min/max) as follows:
   */
-  if (kernel_volume % 2 == 1)
-  {
-    downsample_grid_kmap_stage1_specialized_fast<int32_t, true><<<(int)ceil((double)(n_points * kernel_volume) / 256),
-                                              256>>>(
-        n_points, kernel_volume, in_coords, kernel_sizes, stride,
-        padding, coords_min, coords_max, n_out_points, transformed_out_coords, out_kmap);
-  }
-  else
-  {
-    downsample_grid_kmap_stage1_specialized_fast<int32_t, false><<<(int)ceil((double)(n_points * kernel_volume) / 256),
-                                              256>>>(
-        n_points, kernel_volume, in_coords, kernel_sizes, stride,
-        padding, coords_min, coords_max, n_out_points, transformed_out_coords, out_kmap);
-  }
+  downsample_grid_kmap_stage1_specialized_fast<int32_t><<<(int)ceil((double)(n_points * kernel_volume) / 256),
+                                            256>>>(
+      n_points, kernel_volume, in_coords, kernel_sizes, stride,
+      padding, coords_min, coords_max, n_out_points, transformed_out_coords, out_kmap);
   // stage2: get unique coordinates and insert them to the grid.
   int n_out_points_with_duplicate = _n_out_points.item<int>();
   at::Tensor _out_coords = std::get<0>(torch::_unique(torch::from_blob(transformed_out_coords, {n_out_points_with_duplicate}, options)));
@@ -947,20 +924,10 @@ std::vector<at::Tensor> build_kernel_map_downsample_hashmap(
   divided coords_min/max) as follows:
   */
 
-  if (kernel_volume % 2 == 1)
-  {
-    downsample_grid_kmap_stage1_specialized_fast<int64_t, true><<<(int)ceil((double)(n_points * kernel_volume) / 256),
-                                              256>>>(
-        n_points, kernel_volume, in_coords, kernel_sizes, stride,
-        padding, coords_min, coords_max, n_out_points, transformed_out_coords, out_kmap);
-  }
-  else
-  {
-    downsample_grid_kmap_stage1_specialized_fast<int64_t, false><<<(int)ceil((double)(n_points * kernel_volume) / 256),
-                                              256>>>(
-        n_points, kernel_volume, in_coords, kernel_sizes, stride,
-        padding, coords_min, coords_max, n_out_points, transformed_out_coords, out_kmap);
-  }
+  downsample_grid_kmap_stage1_specialized_fast<int64_t><<<(int)ceil((double)(n_points * kernel_volume) / 256),
+                                            256>>>(
+      n_points, kernel_volume, in_coords, kernel_sizes, stride,
+      padding, coords_min, coords_max, n_out_points, transformed_out_coords, out_kmap);
   // stage2: get unique coordinates and insert them to the grid.
   int n_out_points_with_duplicate = _n_out_points.item<int>();
   at::Tensor _out_coords = std::get<0>(torch::_unique(torch::from_blob(transformed_out_coords, {n_out_points_with_duplicate}, options_long)));

@@ -39,12 +39,12 @@ def _active_kernel_offset_list(
 
     active = []
     kernel_idx = 0
-    for oz in range(kernel_size_cpu[2]):
-        dz = oz - (kernel_size_cpu[2] - 1) // 2
+    for ox in range(kernel_size_cpu[0]):
+        dx = ox - (kernel_size_cpu[0] - 1) // 2
         for oy in range(kernel_size_cpu[1]):
             dy = oy - (kernel_size_cpu[1] - 1) // 2
-            for ox in range(kernel_size_cpu[0]):
-                dx = ox - (kernel_size_cpu[0] - 1) // 2
+            for oz in range(kernel_size_cpu[2]):
+                dz = oz - (kernel_size_cpu[2] - 1) // 2
                 if (
                     (dx == 0 or spatial_extents[0] > 1)
                     and (dy == 0 or spatial_extents[1] > 1)

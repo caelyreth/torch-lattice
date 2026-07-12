@@ -12,6 +12,7 @@ from ..relation import (
     build_pool_output_coords,
     build_target_out_in_map,
     build_target_transposed_out_in_map,
+    build_transposed_output_coords,
     gather_scatter_kmap_from_out_in_map,
 )
 from .func.fetch_on_demand import (
@@ -60,6 +61,8 @@ def conv3d(
         stride=step,
         coordinates=coordinates,
     )
+    if subm and any(item % 2 == 0 for item in size):
+        raise ValueError("submanifold convolution requires odd kernel sizes")
     resolved = _resolved_config(config, training=training)
 
     if coordinates is not None and transposed:
@@ -91,7 +94,7 @@ def conv3d(
         )
 
     if _is_pointwise(size, step, pad, spacing):
-        feats = input.feats.matmul(weight)
+        feats = input.feats.matmul(_pointwise_weight(weight))
         if bias is not None:
             feats = feats + bias
         return input.replace(feats=feats)
@@ -149,8 +152,6 @@ def conv3d(
             padding=pad,
             config=resolved,
             training=training,
-            inference_no_grad=inference_no_grad,
-            convolution=convolution,
         )
     return _inverse_convolution(
         input,
@@ -223,6 +224,18 @@ def normalized_conv3d(
     if bias is not None:
         features = features + bias
     return numerator.replace(feats=features)
+
+
+def _pointwise_weight(weight: torch.Tensor) -> torch.Tensor:
+    """Accept canonical ``(1, C_in, C_out)`` and functional 2D weights."""
+
+    if weight.ndim == 2:
+        return weight
+    if weight.ndim == 3 and int(weight.shape[0]) == 1:
+        return weight[0]
+    raise ValueError(
+        "pointwise convolution requires weight shape (C_in, C_out) or (1, C_in, C_out)."
+    )
 
 
 def _forward_native_convolution(
@@ -389,42 +402,70 @@ def _generative_transposed_convolution(
     padding: Triple,
     config,
     training: bool,
-    inference_no_grad: bool,
-    convolution,
 ) -> SparseTensor:
-    from torch_lattice.nn import functional as F
-
     target_stride = tuple(input.stride[index] // stride[index] for index in range(3))
     if any(input.stride[index] % stride[index] for index in range(3)):
         raise ValueError("transposed stride must divide the input sparse stride")
-    kmap = F.build_kernel_map(
-        input.coords,
-        input.feats.shape[0],
-        kernel_size,
-        stride,
-        padding,
-        None,
-        None,
-        input.spatial_range,
-        config.kmap_mode,
-        config.dataflow,
-        downsample_mode=config.downsample_mode,
-        training=training,
-        ifsort=config.ifsort,
-        generative=True,
-        FOD_fusion=config.FOD_fusion,
-        IGEMM_center_only=config.get("IGEMM_center_only", False),
-        inference=inference_no_grad,
-        subm=False,
+    target_key = input.coord_manager.generated_target(
+        input.coord_key,
+        operation="generative_conv_transpose3d",
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=padding,
+        dilation=(1, 1, 1),
     )
-    feats = convolution.apply(input.feats, weight, kmap, config, False)
-    if bias is not None:
-        feats = feats + bias
-    return input.with_coordinates(
-        feats=feats,
-        coords=kmap["coords"],
-        stride=target_stride,
-        spatial_range=kmap.get("spatial_range"),
+    if target_key is None:
+        target_coords = build_transposed_output_coords(
+            input.coords,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+        )
+        target = input.with_coordinates(
+            feats=input.feats.new_empty((target_coords.shape[0], input.feats.shape[1])),
+            coords=target_coords,
+            stride=target_stride,
+            spatial_range=_transposed_spatial_range(
+                input.spatial_range,
+                kernel_size,
+                stride,
+                padding,
+                (1, 1, 1),
+            ),
+        )
+        input.coord_manager.set_generated_target(
+            input.coord_key,
+            target.coord_key,
+            operation="generative_conv_transpose3d",
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=(1, 1, 1),
+        )
+    else:
+        coordinate_map = input.coord_manager.get(target_key)
+        target = SparseTensor(
+            input.feats.new_empty(
+                (coordinate_map.coords.shape[0], input.feats.shape[1])
+            ),
+            coordinate_map.coords,
+            target_stride,
+            coordinate_map.spatial_range,
+            batch_counts=coordinate_map.batch_counts,
+            coord_manager=input.coord_manager,
+            coord_key=target_key,
+        )
+    return _target_transposed_convolution(
+        input,
+        target,
+        weight,
+        bias,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=padding,
+        dilation=(1, 1, 1),
+        config=config,
+        training=training,
     )
 
 
@@ -744,6 +785,27 @@ def _output_spatial_range(
                 - 1
             )
             // stride[index]
+            + 1,
+        )
+        for index in range(3)
+    )
+
+
+def _transposed_spatial_range(
+    spatial_range,
+    kernel_size: Triple,
+    stride: Triple,
+    padding: Triple,
+    dilation: Triple,
+):
+    if spatial_range is None:
+        return None
+    return tuple(spatial_range[:1]) + tuple(
+        max(
+            0,
+            (int(spatial_range[index + 1]) - 1) * stride[index]
+            - 2 * padding[index]
+            + dilation[index] * (kernel_size[index] - 1)
             + 1,
         )
         for index in range(3)
