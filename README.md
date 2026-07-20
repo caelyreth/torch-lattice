@@ -1,158 +1,170 @@
 ## Torch Lattice
 
-`torch-lattice` is the Torch/CUDA training-side companion to
-[`mlx-lattice`](https://github.com/caelyreth/mlx-lattice). It keeps the sparse
-model authoring and CUDA provenance workflow on the Torch side, then exports
-portable lattice MLIR artifacts for MLX/Metal deployment.
+`torch-lattice` is a sparse convolution library for PyTorch and CUDA. Use it to
+build and train sparse point-cloud or voxel models on NVIDIA GPUs, then export
+the supported model graph and weights as a portable artifact for
+[`mlx-lattice`](https://github.com/caelyreth/mlx-lattice) on Apple Silicon.
 
-`torch-lattice` is a project-owned fork of MIT HAN Lab's TorchSparse. The public
-semantics are aligned to `mlx-lattice` and the lattice MLIR contract rather than
-to historical TorchSparse API quirks.
+It builds on MIT HAN Lab's TorchSparse work while making sparse support
+semantics and artifact export explicit. This is a maintained fork, not a
+drop-in package rename for every historical TorchSparse model.
 
 [Documentation](https://torch-lattice.iki.moe)
-| [MLX Lattice](https://github.com/caelyreth/mlx-lattice)
 | [PyPI](https://pypi.org/project/torch-lattice/)
+| [MLX Lattice](https://github.com/caelyreth/mlx-lattice)
 | [Acknowledgements](#acknowledgements)
 
 ### Install
 
-For normal use, install the published package from PyPI:
+The published wheel supports Linux `x86_64`, Python 3.14, and the PyTorch CUDA
+12.8 wheel stack. You need a compatible NVIDIA driver at runtime; `nvcc` and a
+local CUDA toolkit are only needed to build the extension from source.
+
+Add it to a `uv` project:
 
 ```bash
 uv add torch-lattice --torch-backend cu128
 ```
 
-If you are installing into an existing environment instead of adding a project
-dependency, use:
+Or install it into an existing environment:
 
 ```bash
 uv pip install --torch-backend cu128 torch-lattice
 ```
 
-The published wheel targets Python 3.14 and the PyTorch CUDA 12.8 wheel stack.
-At runtime, the important requirement is a Linux system with a compatible NVIDIA
-driver for the CUDA runtime provided by PyTorch. A local CUDA toolkit is only
-needed when building from source or developing the native extension.
+### Build a sparse model
 
-For development from a checkout:
+Sparse coordinates use `(batch, x, y, z)` integer rows. Each feature row belongs
+to the coordinate row at the same index.
 
-```bash
-uv sync --all-packages --extra test
+```python
+import torch
+import torch_lattice as tl
+import torch_lattice.nn as spnn
+
+coords = torch.tensor(
+    [
+        [0, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 1, 1, 0],
+        [0, 2, 1, 0],
+    ],
+    dtype=torch.int,
+    device="cuda",
+)
+features = torch.randn(coords.shape[0], 8, device="cuda")
+x = tl.SparseTensor(coords=coords, feats=features, stride=1)
+
+model = torch.nn.Sequential(
+    spnn.SubmConv3d(8, 16, kernel_size=3),
+    spnn.BatchNorm(16),
+    spnn.ReLU(inplace=True),
+    spnn.Conv3d(16, 32, kernel_size=2, stride=2),
+    spnn.GlobalAvgPool(),
+    torch.nn.Linear(32, 4),
+).cuda()
+
+logits = model(x)
 ```
 
-The repository also provides a CUDA Linux GitHub workflow that builds and smoke
-checks the native CUDA wheel on an Ubuntu runner.
+Choose the convolution class for the support behavior you intend:
 
-### Relationship to MLX Lattice
+- `SubmConv3d` keeps the input active coordinates and updates their features.
+- `Conv3d` creates a forward sparse output support. Pass
+  `coordinates=target` when the output support is owned by the caller.
+- `ConvTranspose3d` uses a transposed sparse relation; use
+  `GenerativeConvTranspose3d` when the operation must generate fine support.
 
-The two packages are intentionally split by runtime role:
+This distinction matters when porting a TorchSparse model. In particular, a
+legacy spatial `Conv3d(kernel_size > 1, stride = 1)` used for in-place feature
+refinement normally becomes `SubmConv3d`. The
+[migration guide](https://torch-lattice.iki.moe/reference/concepts/migration.html)
+explains the full mapping and checkpoint conversion process.
 
-- `torch-lattice` is the CUDA training and artifact-production side.
-- `mlx-lattice` is the Apple Silicon inference and deployment side.
-- `lattice-contract` defines the shared artifact constants and MLIR contract
-  metadata used by both sides.
+### Export for MLX
 
-Portable artifacts use `graph.mlir` plus `weights.safetensors`. Torch-side
-exporters write those files; MLX-side artifact loading compiles them into an
-executable MLX program.
+Torch Lattice exports an eval-mode model as a portable directory containing
+`graph.mlir` and `weights.safetensors`. The artifact describes the model graph;
+it is not a serialized Python module. `mlx-lattice` loads the same directory for
+MLX/Metal inference.
 
-### Convolution semantics
+```python
+from torch_lattice.artifact import save_lattice_model_artifact
 
-Convolution classes are explicit:
+artifact = save_lattice_model_artifact(
+    model.eval(),
+    "artifacts/example-model",
+    example_inputs=(x,),
+    output_names=("logits",),
+)
 
-- `torch_lattice.nn.Conv3d` is forward support-generating sparse convolution and
-  exports to `lattice.conv3d`, including `stride=1`. Calling the same module as
-  `conv(x, coordinates=target)` exports target-aligned convolution without a
-  separate module class.
-- `torch_lattice.nn.SubmConv3d` is support-preserving submanifold convolution and
-  exports to `lattice.subm_conv3d`.
-- `torch_lattice.nn.ConvTranspose3d` exports to `lattice.conv_transpose3d`.
-- `torch_lattice.nn.GenerativeConvTranspose3d` exports to
-  `lattice.generative_conv_transpose3d`.
+print(artifact.graph_path)
+print(artifact.weights_path)
+```
 
-Artifact builders lower module identity directly. They do not infer submanifold
-semantics from stride, padding, or legacy indice-key conventions.
+The artifact contract is shared through `lattice-contract`. It records the
+public input/output ABI, sparse support semantics, weight layout, and dialect
+schema. Keep a known input/output fixture with every production export, then
+replay it on MLX before deployment.
+
+### Documentation
+
+The complete guide is available at
+[torch-lattice.iki.moe](https://torch-lattice.iki.moe):
+
+- [Installation](https://torch-lattice.iki.moe/getting-started/installation.html)
+- [Quickstart](https://torch-lattice.iki.moe/getting-started/quickstart.html)
+- [Training-to-MLX workflow](https://torch-lattice.iki.moe/getting-started/workflow.html)
+- [Migration from TorchSparse and MinkowskiEngine](https://torch-lattice.iki.moe/reference/concepts/migration.html)
+- [Artifact contract](https://torch-lattice.iki.moe/reference/concepts/artifacts.html)
+- [API reference](https://torch-lattice.iki.moe/api/)
 
 ### Tooling
 
-After `uv sync --all-packages`, use the workspace scripts from the repository
-root:
+The workspace keeps performance measurement and correctness checks separate.
+After `uv sync --all-packages`, run benchmarks when investigating throughput and
+use conformance tools when checking a model or artifact boundary:
 
 ```bash
 uv run bench --preset smoke
 uv run fuzz --cases 32 --device cuda --archive /tmp/torch_lattice_fuzz.tar.gz
-uv run conformance fuzz --cases 32 --device cuda
 uv run migration all --device cuda
 ```
 
-The corresponding MLX-side replay command is:
+Replay a CUDA-generated fuzz archive on the MLX side:
 
 ```bash
 uv run conformance replay /tmp/torch_lattice_fuzz.tar.gz \
   --report /tmp/torch_lattice_fuzz_report.json
 ```
 
-### Migration compatibility checks
+See the [tooling reference](https://torch-lattice.iki.moe/reference/tooling/)
+for fixed fixtures, checkpoint conversion, and focused benchmark options.
 
-Original TorchSparse and `torch-lattice` are not assumed to have identical class
-semantics. The supported migration rule is explicit:
+### Development
 
-- original `torchsparse.nn.Conv3d(kernel_size > 1, stride = 1)` maps to
-  `torch_lattice.nn.SubmConv3d`;
-- original pointwise `Conv3d(kernel_size = 1)` maps to `torch_lattice.nn.Conv3d`;
-- original strided forward convolutions map to `torch_lattice.nn.Conv3d` with the
-  same stride.
+Developing the native extension requires a Linux CUDA environment with Python
+3.14, `uv >= 0.11.25`, PyTorch `2.11.0+cu128`, and a compatible CUDA toolkit.
 
-The `migration` CLI verifies the covered subset against a kept original
-TorchSparse package/worktree in separate subprocesses.
+```bash
+export CUDA_PATH=/usr/local/cuda-12.8
+uv sync --all-packages --extra test
+uv run --all-packages --extra test pytest tests -q
+```
 
-### Documentation
-
-The full documentation is hosted at
-[torch-lattice.iki.moe](https://torch-lattice.iki.moe):
-
-- [Installation](https://torch-lattice.iki.moe/getting-started/installation.html)
-- [Quickstart](https://torch-lattice.iki.moe/getting-started/quickstart.html)
-- [Concept references](https://torch-lattice.iki.moe/reference/concepts/)
-- [Tooling references](https://torch-lattice.iki.moe/reference/tooling/)
-- [API reference](https://torch-lattice.iki.moe/api/)
-
-The source for the documentation lives in [`docs/`](./docs). Build it locally
-with:
+Build documentation without compiling CUDA code:
 
 ```bash
 uv sync --group docs --no-install-workspace
 uv run --no-sync sphinx-build -W -b html docs docs/_build/html
 ```
 
-### Development
-
-Common local checks:
-
-```bash
-uv run --all-packages --extra test pytest tests -q
-uv run bench --list
-```
-
-Build CUDA Linux distributions locally with:
-
-```bash
-export CUDA_PATH=/usr/local/cuda-12.8
-uv build \
-  --sdist \
-  --wheel \
-  --config-setting=cmake.define.CMAKE_CUDA_COMPILER="$CUDA_PATH/bin/nvcc" \
-  --config-setting=cmake.define.CUDAToolkit_ROOT="$CUDA_PATH"
-```
-
 ### Acknowledgements
 
 `torch-lattice` is based on MIT HAN Lab's original
-[TorchSparse](https://github.com/mit-han-lab/torchsparse) project.
-
-It is developed together with
-[`mlx-lattice`](https://github.com/caelyreth/mlx-lattice), which provides the
-MLX/Metal deployment runtime for the same artifact contract.
+[TorchSparse](https://github.com/mit-han-lab/torchsparse) project. It is
+developed with [`mlx-lattice`](https://github.com/caelyreth/mlx-lattice), the
+MLX/Metal runtime for the shared artifact contract.
 
 ### License
 
